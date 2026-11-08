@@ -10,7 +10,7 @@ VENV=$HOME/venvs/im2tex
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 # TeX Live package names: bm is in "tools", mathrsfs in "jknapltx" (+ "rsfs" fonts), upgreek in "was".
 TEX_PACKAGES="preview tools jknapltx rsfs was mathtools cancel stmaryrd esint
-              fontspec unicode-math lm-math stix2-otf tex-gyre-math xits"
+              fontspec unicode-math lm-math stix2-otf tex-gyre tex-gyre-math xits"
 
 mkdir -p "$HOME/.local/bin"
 export PATH=$HOME/.local/bin:$PATH
@@ -31,6 +31,10 @@ fi
 tlmgr update --self
 # shellcheck disable=SC2086
 tlmgr install $TEX_PACKAGES
+# Cambria Math (what PowerPoint/Word equations use) for synthetic rendering; local use only, not redistributed.
+if [ -f /mnt/c/Windows/Fonts/cambria.ttc ]; then
+  mkdir -p "$HOME/.fonts" && cp -n /mnt/c/Windows/Fonts/cambria.ttc "$HOME/.fonts/" && fc-cache -f "$HOME/.fonts"
+fi
 
 echo "== python venv ($VENV)"
 # uv's managed Python ships the C headers that torch.compile/Triton need; the system one doesn't
