@@ -1,8 +1,0 @@
-{
-  "name": "im2tex-render",
-  "private": true,
-  "description": "KaTeX parse check used by im2tex/render/katex.py",
-  "dependencies": {
-    "katex": "^0.16.0"
-  }
-}
