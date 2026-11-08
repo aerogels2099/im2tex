@@ -27,3 +27,12 @@ def train(formulas, vocab_size: int = 4000) -> Tokenizer:
 
 def load(path) -> Tokenizer:
     return Tokenizer.from_file(str(path))
+
+
+def brace_delta(tok: Tokenizer) -> list[int]:
+    """Each token id's net '{' minus '}' (escaped \\{ and \\} don't count), for constrained decoding."""
+    delta = [0] * tok.get_vocab_size()
+    for piece, i in tok.get_vocab().items():
+        s = piece.removesuffix("</w>").replace("\\{", "").replace("\\}", "")
+        delta[i] = s.count("{") - s.count("}")
+    return delta
