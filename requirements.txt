@@ -1,0 +1,12 @@
+# torch / torchvision are installed separately from the CUDA 12.8 index (see scripts/setup_wsl.sh)
+timm
+transformers
+datasets
+tokenizers
+pymupdf
+pillow
+numpy
+sacrebleu
+rapidfuzz
+pytest
+tqdm
