@@ -22,6 +22,7 @@ PDFLATEX_PREAMBLE = r"""\documentclass{article}
 """
 
 _ERROR_LINE = re.compile(r"^.*?doc\.tex:(\d+): ", re.M)
+_COMMENT = re.compile(r"(?<!\\)%[^\n]*\n?")  # like TeX, a comment also eats its line break
 
 
 def render(formulas: list[str], dpi: int = 200, preamble: str = PDFLATEX_PREAMBLE,
@@ -64,8 +65,9 @@ def _run_tex(batch, dpi, preamble, engine, style):
     starts = []
     for f in batch:
         starts.append(len(lines) + 1)  # 1-based line number where this item begins
-        # The closing $ is on its own line so a stray % in the formula can't comment it out.
-        lines += [r"\begin{preview}$" + style, " ".join(f.split()), r"$\end{preview}", ""]
+        # Comments go before the formula is put on one line, so "a%\nb" still renders "ab";
+        # the closing $ is on its own line so nothing in the formula can comment it out.
+        lines += [r"\begin{preview}$" + style, " ".join(_COMMENT.sub("", f).split()), r"$\end{preview}", ""]
     lines.append(r"\end{document}")
 
     with tempfile.TemporaryDirectory() as tmp:

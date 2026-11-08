@@ -28,3 +28,8 @@ def test_percent_comment_does_not_swallow_the_closing_delimiter():
     out = render([r"a % comment", "b"])
     assert image_match(out[0], render(["a"])[0])
     assert out[1] is not None
+
+
+def test_comment_at_line_end_continues_the_formula():
+    a, b = render(["x +%\ny", "x + y"])
+    assert image_match(a, b)
