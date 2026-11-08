@@ -104,6 +104,30 @@ def load_trocr_ft():
                                    "checkpoints", "trocr-small-ft"))
 
 
+def load_im2tex(run):
+    """Our model: the best checkpoint of training run <data>/runs/<run>."""
+    import os
+
+    from im2tex.data import collate, preprocess
+    from im2tex.model import load_checkpoint
+    from im2tex.tokenizer import BOS, EOS, brace_delta, load
+
+    data = os.environ.get("IM2TEX_DATA", os.path.expanduser("~/im2tex-data"))
+    run_dir = os.path.join(data, "runs", run)
+    args = json.load(open(os.path.join(run_dir, "args.json")))
+    model, _ = load_checkpoint(os.path.join(run_dir, "best.pt"))
+    tok = load(os.path.join(data, "tokenizer.json"))
+    delta = torch.tensor(brace_delta(tok), device="cuda")
+
+    def predict(images):
+        x = collate([(preprocess(im, args["max_h"], args["max_w"]), torch.zeros(1)) for im in images])[0]
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            out = model.generate(x.cuda(), tok.token_to_id(BOS), tok.token_to_id(EOS), brace_delta=delta)
+        return tok.decode_batch(out.tolist())
+
+    return predict
+
+
 MODELS = {"pix2tex": load_pix2tex, "got_ocr": load_got_ocr, "texify": load_texify, "unimernet": load_unimernet,
           "trocr": load_trocr, "trocr_ft": load_trocr_ft}
 
@@ -128,7 +152,7 @@ def subset(rows, limit):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("model", choices=MODELS)
+    ap.add_argument("model", help=f"one of {', '.join(MODELS)}, or im2tex-<run> for our own model")
     ap.add_argument("split_dir", type=Path, help="directory with refs.jsonl")
     ap.add_argument("out", type=Path)
     ap.add_argument("--limit", type=int, help="fixed subset of this many rows (same for every model)")
@@ -136,7 +160,12 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     print(f"memory cap {cap_memory():.1f} GB")
-    predict = MODELS[args.model]()
+    if args.model.startswith("im2tex-"):
+        predict = load_im2tex(args.model.removeprefix("im2tex-"))
+    elif args.model in MODELS:
+        predict = MODELS[args.model]()
+    else:
+        ap.error(f"unknown model {args.model}")
     rows = subset([json.loads(l) for l in (args.split_dir / "refs.jsonl").open(encoding="utf-8")], args.limit)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", encoding="utf-8") as out:
