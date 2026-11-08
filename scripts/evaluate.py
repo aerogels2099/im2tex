@@ -24,6 +24,8 @@ preds, refs = [r["pred"] for r in rows], [r["ref"] for r in rows]
 metrics = string_metrics([normalize_or_none(p) or p for p in preds], [normalize_or_none(r) or r for r in refs])
 imgs = render(preds + refs, dpi=args.dpi)  # one call so pred and ref batches render in parallel
 metrics |= image_metrics(imgs[: len(rows)], imgs[len(rows) :])
+if "seconds" in rows[0]:
+    metrics["sec_per_image"] = sum(r["seconds"] for r in rows) / len(rows)
 
 print(json.dumps(metrics, indent=2))
 args.preds.with_suffix(".metrics.json").write_text(json.dumps(metrics, indent=2))
