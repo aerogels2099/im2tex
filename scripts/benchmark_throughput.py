@@ -8,6 +8,7 @@ import time
 import torch
 import torch.nn.functional as F
 
+from im2tex.gpu import cap_memory
 from im2tex.model import Im2Tex
 
 VOCAB = 8000
@@ -43,9 +44,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--compile", action="store_true")
 args = ap.parse_args()
 
-# On Windows/WSL the NVIDIA driver spills into shared system RAM instead of raising OOM, which makes
-# oversized batches ~10x slower without any error. Capping the allocator turns that into a real OOM.
-torch.cuda.set_per_process_memory_fraction(0.9)
+print(f"memory cap {cap_memory():.1f} GB")  # oversized batches raise OOM instead of spilling into system RAM
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.matmul.allow_tf32 = True
 model = Im2Tex(VOCAB, pretrained=False).cuda().to(memory_format=torch.channels_last)
