@@ -45,7 +45,16 @@ def load_got_ocr():
     return predict
 
 
-MODELS = {"pix2tex": load_pix2tex, "got_ocr": load_got_ocr}
+def load_texify():
+    from texify.inference import batch_inference
+    from texify.model.model import load_model
+    from texify.model.processor import load_processor
+
+    model, processor = load_model(), load_processor()
+    return lambda images: batch_inference(images, model, processor)
+
+
+MODELS = {"pix2tex": load_pix2tex, "got_ocr": load_got_ocr, "texify": load_texify}
 
 
 def predict_all(predict, images):
