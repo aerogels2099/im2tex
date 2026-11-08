@@ -18,9 +18,20 @@ because reading from `/mnt/c` is several times slower.
 ## Data
 
 ```bash
-bash scripts/download_data.sh      # UniMER-1M + test, MathWriting, CROHME; HME100K is a manual download
-python scripts/prepare_unimer.py   # UniMER-Test -> <split>/refs.jsonl + images/
+bash scripts/download_data.sh          # UniMER-1M + test, MathWriting, CROHME; HME100K is a manual download
+python scripts/prepare_unimer.py       # each split -> refs.jsonl ({"id", "image", "ref", "norm"}) + images/
+python scripts/prepare_mathwriting.py  # render pen strokes to PNG
+python scripts/prepare_crohme.py       # invert to dark-on-white PNG
+python scripts/render_synthetic.py ~/im2tex-data/unimer/train/refs.jsonl --n 50000   # 9 math fonts
+python scripts/train_tokenizer.py <train refs.jsonl ...> --report <test refs.jsonl ...>
+python scripts/build_shards.py         # train/val -> Arrow shards (~6 GB, 14 files)
 ```
+
+| Split | Rows | Contents |
+|---|---|---|
+| train | 1,670,906 | UniMER-1M 981k, MathWriting 230k + 396k synthetic + 6k symbols, synthetic printed 49k, CROHME 9k |
+| val | 21,560 | MathWriting valid, 0.5% of UniMER and 2% of synthetic printed (held out by id hash) |
+| test | as prepared | UniMER-Test spe/cpe/sce/hwe, CROHME 2014/2016/2019, MathWriting test, im2latex-100k |
 
 Labels from every dataset go through `im2tex/normalize.py`, which rewrites LaTeX into one canonical
 spelling (`{\bf C}` → `\mathbf { C }`, `x^2_i` → `x _ { i } ^ { 2 }`, `\le` → `\leq`, ...) so formulas that
