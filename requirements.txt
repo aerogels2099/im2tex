@@ -3,6 +3,7 @@ timm
 transformers
 datasets
 tokenizers
+sentencepiece
 pymupdf
 pillow
 numpy
