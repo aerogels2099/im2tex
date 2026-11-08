@@ -119,7 +119,7 @@ ENV_RENAME = {  # display environments can't appear inside $...$; use their inli
 
 def normalize(latex: str) -> str:
     """Canonical spelling of a LaTeX math formula. Raises NormalizeError on invalid input."""
-    p = _Parser(_strip_math_delimiters(latex.strip()))
+    p = _Parser(strip_math_delimiters(latex.strip()))
     units = p.seq(stop=set())
     if len(units) == 1 and isinstance(units[0], _Group):
         units = units[0].inner
@@ -452,7 +452,7 @@ def _flat(units):
     return [t for u in units for t in u]
 
 
-def _strip_math_delimiters(s):
+def strip_math_delimiters(s):
     for left, right in (("$$", "$$"), ("$", "$"), (r"\[", r"\]"), (r"\(", r"\)")):
         if s.startswith(left) and s.endswith(right) and len(s) >= len(left) + len(right):
             return s[len(left):len(s) - len(right)]
