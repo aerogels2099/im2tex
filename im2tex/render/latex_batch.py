@@ -25,19 +25,22 @@ _ERROR_LINE = re.compile(r"^.*?doc\.tex:(\d+): ", re.M)
 
 
 def render(formulas: list[str], dpi: int = 200, preamble: str = PDFLATEX_PREAMBLE,
-           engine: str = "pdflatex", batch_size: int = 200, workers: int = 8) -> list:
-    """Return one grayscale uint8 array per formula, or None where the formula fails to compile."""
+           engine: str = "pdflatex", style: str = r"\displaystyle", batch_size: int = 200,
+           workers: int = 8) -> list:
+    """Return one grayscale uint8 array per formula, or None where the formula fails to compile.
+    style is prepended inside $...$: \\displaystyle, or "" for inline (text) style."""
     results = [None] * len(formulas)
     chunks = [list(range(i, min(i + batch_size, len(formulas)))) for i in range(0, len(formulas), batch_size)]
+    tex = dict(dpi=dpi, preamble=preamble, engine=engine, style=style)
     with ThreadPoolExecutor(workers) as pool:
-        list(pool.map(lambda idx: _render_into(idx, formulas, results, dpi, preamble, engine), chunks))
+        list(pool.map(lambda idx: _render_into(idx, formulas, results, tex), chunks))
     return results
 
 
-def _render_into(idx, formulas, results, dpi, preamble, engine, use_blame=True):
+def _render_into(idx, formulas, results, tex, use_blame=True):
     if not idx:
         return
-    pages, blamed = _run_tex([formulas[i] for i in idx], dpi, preamble, engine)
+    pages, blamed = _run_tex([formulas[i] for i in idx], **tex)
     if pages is not None:
         for i, img in zip(idx, pages):
             results[i] = img
@@ -46,23 +49,23 @@ def _render_into(idx, formulas, results, dpi, preamble, engine, use_blame=True):
         return  # this formula is broken
     if use_blame and 0 < len(blamed) < len(idx):
         for j in blamed:
-            _render_into([idx[j]], formulas, results, dpi, preamble, engine)
+            _render_into([idx[j]], formulas, results, tex)
         rest = [i for j, i in enumerate(idx) if j not in blamed]
-        _render_into(rest, formulas, results, dpi, preamble, engine, use_blame=False)
+        _render_into(rest, formulas, results, tex, use_blame=False)
     else:
         mid = len(idx) // 2
-        _render_into(idx[:mid], formulas, results, dpi, preamble, engine)
-        _render_into(idx[mid:], formulas, results, dpi, preamble, engine)
+        _render_into(idx[:mid], formulas, results, tex)
+        _render_into(idx[mid:], formulas, results, tex)
 
 
-def _run_tex(batch, dpi, preamble, engine):
+def _run_tex(batch, dpi, preamble, engine, style):
     """Compile one batch. Returns (pages, set()) on a clean run, else (None, blamed local indices)."""
     lines = preamble.rstrip("\n").split("\n") + [r"\begin{document}"]
     starts = []
     for f in batch:
         starts.append(len(lines) + 1)  # 1-based line number where this item begins
         # The closing $ is on its own line so a stray % in the formula can't comment it out.
-        lines += [r"\begin{preview}$\displaystyle", " ".join(f.split()), r"$\end{preview}", ""]
+        lines += [r"\begin{preview}$" + style, " ".join(f.split()), r"$\end{preview}", ""]
     lines.append(r"\end{document}")
 
     with tempfile.TemporaryDirectory() as tmp:
