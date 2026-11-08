@@ -5,7 +5,7 @@ Image of a math formula (printed or handwritten) → LaTeX source.
 ## Setup (WSL2 Ubuntu 24.04, no sudo)
 
 ```bash
-bash scripts/setup_wsl.sh          # uv, Node, TinyTeX + math packages, ~/venvs/im2tex (torch cu128)
+bash scripts/setup_wsl.sh          # uv, TinyTeX + math packages, ~/venvs/im2tex (torch cu128)
 bash baselines/setup_pix2tex.sh    # separate venv: pix2tex pins old dependencies
 ```
 
@@ -14,6 +14,21 @@ bash baselines/setup_pix2tex.sh    # separate venv: pix2tex pins old dependencie
 Run Python from the repo root with `PYTHONPATH=.` and `~/venvs/im2tex` activated.
 Datasets live outside the repo in `$IM2TEX_DATA` (default `~/im2tex-data`), on WSL's own filesystem
 because reading from `/mnt/c` is several times slower.
+
+## Data
+
+```bash
+bash scripts/download_data.sh      # UniMER-1M + test, MathWriting, CROHME; HME100K is a manual download
+python scripts/prepare_unimer.py   # UniMER-Test -> <split>/refs.jsonl + images/
+```
+
+Labels from every dataset go through `im2tex/normalize.py`, which rewrites LaTeX into one canonical
+spelling (`{\bf C}` → `\mathbf { C }`, `x^2_i` → `x _ { i } ^ { 2 }`, `\le` → `\leq`, ...) so formulas that
+render the same are written the same. Every rule must leave the rendered image unchanged:
+
+```bash
+python scripts/check_normalizer.py <refs.jsonl or formulas.txt>   # errors, idempotency, render unchanged
+```
 
 ## Evaluation harness
 
