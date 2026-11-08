@@ -37,7 +37,29 @@ SYNONYMS = {
     r"\lbrace": r"\{", r"\rbrace": r"\}", r"\lbrack": "[", r"\rbrack": "]", r"\vert": "|", r"\Vert": r"\|",
     r"\thinspace": r"\,", r"\medspace": r"\:", r"\>": r"\:", r"\thickspace": r"\;", r"\negthinspace": r"\!",
     r"\bm": r"\boldsymbol", r"\Bbb": r"\mathbb",
+    "\\ ": "~", "\\\n": "~", "\\\t": "~",  # in math mode a control space and ~ are the same space
 }
+BRACED_SYNONYMS = {r"\dag": r"\dagger", r"\ddag": r"\ddagger"}  # in math \dag is {\dagger}: an Ord, not a Bin
+# Ordinary (Ord-class) symbols: {x} and x render the same when no script follows.
+ORDINARY = set(r"""\alpha \beta \gamma \delta \epsilon \varepsilon \zeta \eta \theta \vartheta \iota \kappa
+\varkappa \lambda \mu \nu \xi \pi \varpi \rho \varrho \sigma \varsigma \tau \upsilon \phi \varphi \chi \psi
+\omega \Gamma \Delta \Theta \Lambda \Xi \Pi \Sigma \Upsilon \Phi \Psi \Omega \infty \partial \ell \hbar
+\nabla \imath \jmath \aleph \emptyset \varnothing""".split())
+# Common commands known to take no argument. A group after any *other* unparsed command might be its
+# argument, and some commands (\textcircled, text accents like \b) treat {x} and x differently.
+NO_ARG = ORDINARY | set(r"""\cdot \times \div \pm \mp \ast \star \circ \bullet \oplus \ominus \otimes \oslash
+\odot \cup \cap \wedge \vee \setminus \wr \diamond \amalg \sqcup \sqcap \uplus \triangleleft \triangleright
+\dagger \ddagger \leq \geq \neq \equiv \approx \sim \simeq \cong \propto \ll \gg \subset \supset \subseteq
+\supseteq \in \ni \notin \mid \parallel \perp \models \vdash \dashv \prec \succ \preceq \succeq \asymp \doteq
+\rightarrow \leftarrow \leftrightarrow \Rightarrow \Leftarrow \Leftrightarrow \longrightarrow \longleftarrow
+\Longrightarrow \Longleftarrow \longleftrightarrow \Longleftrightarrow \mapsto \longmapsto \uparrow \downarrow
+\updownarrow \Uparrow \Downarrow \nearrow \searrow \swarrow \nwarrow \hookrightarrow \hookleftarrow
+\rightleftharpoons \iff \implies \sum \prod \coprod \int \iint \iiint \oint \bigcup \bigcap \bigoplus
+\bigotimes \bigvee \bigwedge \bigsqcup \lim \sin \cos \tan \cot \sec \csc \sinh \cosh \tanh \log \ln \exp
+\max \min \sup \inf \det \dim \ker \deg \arg \ldots \cdots \vdots \ddots \dots \quad \qquad \, \; \: \!
+\langle \rangle \lfloor \rfloor \lceil \rceil \forall \exists \neg \top \bot \angle \triangle \Box \flat
+\natural \sharp \prime \surd \Re \Im \wp \hslash \| \{ \} \displaystyle \textstyle \scriptstyle
+\scriptscriptstyle \limits \nolimits \not \hline""".split())
 OPS_NOLIMITS = set("arccos arcsin arctan arg cos cosh cot coth csc deg dim exp hom ker lg ln log "
                    "sec sin sinh tan tanh".split())
 OPS_LIMITS = set("det gcd inf lim max min Pr sup".split())
@@ -103,7 +125,17 @@ def normalize(latex: str) -> str:
         units = units[0].inner
     if units[:1] == [[r"\displaystyle"]]:  # our renderer is already in display style
         units = units[1:]
+    while units[-1:] == [["\\\\"]]:  # a trailing line break renders nothing
+        units = units[:-1]
     return " ".join(_content(units))
+
+
+def normalize_or_none(latex: str):
+    """normalize(), or None for invalid input. Picklable, for multiprocessing."""
+    try:
+        return normalize(latex)
+    except NormalizeError:
+        return None
 
 
 class _Group(list):
@@ -145,8 +177,10 @@ class _Parser:
             raise NormalizeError(f"expected {tok!r}, got {t!r}")
 
     # -- math mode ------------------------------------------------------------------------------
-    def seq(self, stop):
-        """Parse math up to (not including) a token in `stop`; return the finished units."""
+    def seq(self, stop, unwrap=True):
+        """Parse math up to (not including) a token in `stop`; return the finished units.
+
+        unwrap=False keeps braces around lone symbols ({L}), for arguments of commands that inspect them."""
         items = []
         while (t := self.peek()) is not None and t not in stop:
             if t in ("^", "_", "'"):
@@ -156,9 +190,15 @@ class _Parser:
             u = self.atom()
             if u is None:
                 continue
-            if isinstance(u, _Group) and len(u.inner) == 1 and _self_delimited(u.inner[0]):
+            if (isinstance(u, _Group) and len(u.inner) == 1 and _self_delimited(u.inner[0])
+                    and not _maybe_argument(items[-1] if items else None)):
                 u = u.inner[0]  # {\bf C} -> \mathbf{C}, {{x}} -> {x}
             items.append(u)
+        # {x} -> x for a lone ordinary symbol, once we know no script attached to the group
+        if unwrap:
+            items = [u.inner[0] if isinstance(u, _Group) and len(u.inner) == 1 and _ordinary(u.inner[0])
+                     and not _maybe_argument(items[k - 1] if k else None) else u
+                     for k, u in enumerate(items)]
         return _finalize(items)
 
     def atom(self):
@@ -182,6 +222,8 @@ class _Parser:
             return _Marker(FONT_SWITCHES[t])
         if t in INFIX:
             return _Marker(INFIX[t], infix=True)
+        if t in BRACED_SYNONYMS:
+            return _Group(["{", BRACED_SYNONYMS[t], "}"], [[BRACED_SYNONYMS[t]]])
         star = t in STARRED and self.peek() == "*"
         if star:
             self.next()
@@ -219,7 +261,7 @@ class _Parser:
         """A required math argument: {...}, or a single token together with its own arguments."""
         if self.peek() == "{":
             self.next()
-            inner = self.seq({"}"})
+            inner = self.seq({"}"}, unwrap)
             self.expect("}")
             return _content(inner) if unwrap else _flat(inner)
         if self.peek() in (None, "}", "^", "_", "&"):
@@ -227,7 +269,7 @@ class _Parser:
         u = self.atom()
         if isinstance(u, _Marker):
             raise NormalizeError(f"{u.cmd} cannot be an argument")
-        return list(u or [])
+        return _content([u]) if u else []
 
     def args(self, spec):
         out = []
@@ -306,6 +348,8 @@ class _Parser:
             body.append(sep)
             if sep == "\\\\":
                 body += self.args("O")
+        if body[-1:] == ["\\\\"]:  # a final \\ before \end adds no row
+            body.pop()
         self.expect("{")
         if self.raw_until("}") != name:
             raise NormalizeError(rf"\begin{{{name}}} closed by a different \end")
@@ -376,6 +420,16 @@ def _self_delimited(unit):
             return False
         j = _closing(unit, j) + 1
     return n is not None and j == len(unit)
+
+
+def _maybe_argument(prev):
+    """Could a group right after `prev` be an argument we didn't parse? True after an unknown command."""
+    return (isinstance(prev, list) and len(prev) == 1 and bool(_CONTROL_WORD.fullmatch(prev[0]))
+            and prev[0] not in NO_ARG and prev[0] not in ARGS)
+
+
+def _ordinary(unit):
+    return len(unit) == 1 and (unit[0] in ORDINARY or (len(unit[0]) == 1 and unit[0].isalnum()))
 
 
 def _closing(tokens, j):

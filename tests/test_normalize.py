@@ -11,6 +11,7 @@ CASES = [
     (r"x^\frac12", r"x ^ { \frac { 1 } { 2 } }"),
     (r"x^{{a}}", r"x ^ { a }"),
     (r"{}^{14}C", r"{ } ^ { 1 4 } C"),
+    (r"x^{{a}b}", r"x ^ { a b }"),
     # arguments and fractions
     (r"\frac12", r"\frac { 1 } { 2 }"),
     (r"\sqrt[3]x", r"\sqrt [ 3 ] { x }"),
@@ -27,7 +28,14 @@ CASES = [
     (r"\operatorname{max}", r"\operatorname { m a x }"),
     # braces that change nothing
     (r"{{x}}", r"x"),
-    (r"a{{x}}", r"a { x }"),
+    (r"a{{x}}", r"a x"),
+    (r"a {x} + {\alpha} {-} 1 {,} 5", r"a x + \alpha { - } 1 { , } 5"),  # {-} and {,} space differently
+    (r"{x}^2 + {xy}", r"{ x } ^ { 2 } + { x y }"),  # a script on a group, and multi-symbol groups, stay
+    (r"a \ b ~ c", r"a ~ b ~ c"),
+    (r"0 \dag 1 + A^\dag", r"0 { \dagger } 1 + A ^ { \dagger }"),  # \dag is {\dagger} in math
+    (r"\textcircled{3} \b{M} \alpha{x}", r"\textcircled { 3 } \b { M } \alpha x"),  # unknown commands keep braces
+    (r"a + b \\", r"a + b"),
+    (r"\begin{array}{c} a \\ b \\ \end{array}", r"\begin{array} {c} a \\ b \end{array}"),
     (r"{\frac{a}{b}}c", r"\frac { a } { b } c"),
     (r"\int {\cal D} \phi", r"\int \mathcal { D } \phi"),
     (r"{ \cal { S } }", r"\mathcal { S }"),
@@ -52,7 +60,7 @@ CASES = [
     (r"a\mkern-3mu b", r"a \mkern -3mu b"),
     (r"\mathrm{d}x\label{eq:1}\nonumber", r"\mathrm { d } x"),
     (r"\displaystyle\sum_i", r"\sum _ { i }"),
-    (r"{\displaystyle a + {b}}", r"a + { b }"),
+    (r"{\displaystyle a + {b}}", r"a + b"),
     (r"$$ x $$", r"x"),
     # environments
     (r"\begin{align} a &= b \\ c &= d \end{align}", r"\begin{aligned} a & = b \\ c & = d \end{aligned}"),
