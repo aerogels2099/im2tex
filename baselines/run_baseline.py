@@ -54,7 +54,36 @@ def load_texify():
     return lambda images: batch_inference(images, model, processor)
 
 
-MODELS = {"pix2tex": load_pix2tex, "got_ocr": load_got_ocr, "texify": load_texify}
+def load_unimernet():
+    import os
+
+    from omegaconf import OmegaConf
+
+    import unimernet  # noqa: F401  (registers its models and processors)
+    from unimernet.common.registry import registry
+    from unimernet.processors import load_processor
+
+    weights = os.path.join(os.environ.get("IM2TEX_DATA", os.path.expanduser("~/im2tex-data")),
+                           "models", "unimernet_base")
+    cfg = OmegaConf.create({  # the settings of the official demo's cfg_base.yaml
+        "arch": "unimernet", "model_name": "unimernet", "tokenizer_name": "nougat",
+        "model_config": {"model_name": weights, "max_seq_len": 1536},
+        "tokenizer_config": {"path": weights}, "load_pretrained": False,
+    })
+    model = registry.get_model_class("unimernet").from_config(cfg)
+    # Load strictly: the package's own loader uses strict=False and would keep random weights on a mismatch.
+    model.load_state_dict(torch.load(os.path.join(weights, "pytorch_model.pth"), map_location="cpu")["model"])
+    model = model.cuda().eval()
+    processor = load_processor("formula_image_eval", OmegaConf.create({"image_size": [192, 672]}))
+
+    def predict(images):
+        batch = torch.stack([processor(im) for im in images]).cuda()
+        return model.generate({"image": batch})["pred_str"]  # greedy, like the demo
+
+    return predict
+
+
+MODELS = {"pix2tex": load_pix2tex, "got_ocr": load_got_ocr, "texify": load_texify, "unimernet": load_unimernet}
 
 
 def predict_all(predict, images):
