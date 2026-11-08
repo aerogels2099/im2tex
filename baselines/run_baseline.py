@@ -1,4 +1,4 @@
-"""Run a pretrained model over an exported split and write predictions as JSONL ({"id", "pred", "ref"}).
+"""Run a pretrained model over a prepared split and write its refs.jsonl rows back with a "pred" added.
 
 Each baseline lives in its own venv (their pinned dependencies conflict), so this file only needs PIL.
     ~/venvs/pix2tex/bin/python baselines/run_baseline.py pix2tex ~/im2tex-data/im2latex100k/test runs/pix2tex_im2latex100k_test.jsonl
@@ -33,7 +33,7 @@ args.out.parent.mkdir(parents=True, exist_ok=True)
 with (args.split_dir / "refs.jsonl").open(encoding="utf-8") as refs, args.out.open("w", encoding="utf-8") as out:
     for line in refs:
         row = json.loads(line)
-        img = Image.open(args.split_dir / "images" / f"{row['id']}.png").convert("RGB")
+        img = Image.open(args.split_dir / row["image"]).convert("RGB")
         try:
             row["pred"] = predict(img)
         except Exception as e:  # a crash on one image is a wrong answer, not a reason to stop
