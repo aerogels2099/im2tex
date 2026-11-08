@@ -83,7 +83,29 @@ def load_unimernet():
     return predict
 
 
-MODELS = {"pix2tex": load_pix2tex, "got_ocr": load_got_ocr, "texify": load_texify, "unimernet": load_unimernet}
+def load_trocr(checkpoint="microsoft/trocr-small-printed"):
+    from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+
+    processor = TrOCRProcessor.from_pretrained(checkpoint)
+    model = VisionEncoderDecoderModel.from_pretrained(checkpoint).cuda().eval()
+
+    def predict(images):
+        pixels = processor(images=images, return_tensors="pt").pixel_values.cuda()
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            out = model.generate(pixels, max_new_tokens=512, num_beams=1)
+        return processor.batch_decode(out, skip_special_tokens=True)
+
+    return predict
+
+
+def load_trocr_ft():
+    import os
+    return load_trocr(os.path.join(os.environ.get("IM2TEX_DATA", os.path.expanduser("~/im2tex-data")),
+                                   "checkpoints", "trocr-small-ft"))
+
+
+MODELS = {"pix2tex": load_pix2tex, "got_ocr": load_got_ocr, "texify": load_texify, "unimernet": load_unimernet,
+          "trocr": load_trocr, "trocr_ft": load_trocr_ft}
 
 
 def predict_all(predict, images):
