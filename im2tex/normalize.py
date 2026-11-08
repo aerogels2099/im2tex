@@ -120,7 +120,10 @@ ENV_RENAME = {  # display environments can't appear inside $...$; use their inli
 def normalize(latex: str) -> str:
     """Canonical spelling of a LaTeX math formula. Raises NormalizeError on invalid input."""
     p = _Parser(strip_math_delimiters(latex.strip()))
-    units = p.seq(stop=set())
+    try:
+        units = p.seq(stop=set())
+    except RecursionError:  # runaway model output like {{{{...: hundreds of nested groups
+        raise NormalizeError("nested too deeply") from None
     if len(units) == 1 and isinstance(units[0], _Group):
         units = units[0].inner
     if units[:1] == [[r"\displaystyle"]]:  # our renderer is already in display style

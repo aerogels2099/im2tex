@@ -88,6 +88,7 @@ def test_idempotent(src):
     r"\begin{matrix} a \end{pmatrix}", r"{a \over b \over c}", r"\kern x",
     r"\left( a", r"a \right)",
     r"x = \eqref{eq:1}",  # the image shows a resolved number the label can't reproduce
+    "{" * 5000 + "x" + "}" * 5000,  # runaway model output: reported, not a crash
 ])
 def test_invalid_input_raises(src):
     with pytest.raises(NormalizeError):
