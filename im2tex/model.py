@@ -27,6 +27,10 @@ class Im2Tex(nn.Module):
         self.norm = nn.LayerNorm(d_model)
         self.head = nn.Linear(d_model, vocab_size, bias=False)
         self.head.weight = self.tok_emb.weight
+        # nn.Embedding's default N(0, 1) makes the tied output layer's first logits ~sqrt(d_model) too large
+        # (initial loss ~40 instead of ~ln(vocab) = 8); small embeddings start training near uniform.
+        for emb in (self.tok_emb, self.pos_emb, self.row_emb, self.col_emb):
+            nn.init.normal_(emb.weight, std=0.02)
 
     def encode(self, images: torch.Tensor) -> torch.Tensor:
         """images: (B, 1, H, W) with H, W multiples of 16 -> memory (B, H/16 * W/16, d_model)."""

@@ -16,6 +16,14 @@ def test_forward_shapes():
     assert logits.shape == (2, 7, 20)
 
 
+def test_untrained_model_predicts_close_to_uniform():
+    model = Im2Tex(vocab_size=3000, pretrained=False).eval()
+    tokens = torch.randint(0, 3000, (2, 9))
+    loss = torch.nn.functional.cross_entropy(model(torch.rand(2, 1, 64, 128), tokens).flatten(0, 1),
+                                             tokens.flatten())
+    assert abs(loss.item() - torch.log(torch.tensor(3000.0)).item()) < 1.0
+
+
 def test_generate_never_closes_unopened_braces_or_ends_with_open_ones():
     model = _tiny()
     with torch.no_grad():  # make braces likely, so the constraint actually has work to do
