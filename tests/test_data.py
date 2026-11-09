@@ -17,6 +17,17 @@ def test_ink_box_keeps_a_margin_and_blank_images_stay_whole():
     assert ink_box(Image.new("L", (30, 20), 255)) == (0, 0, 30, 20)
 
 
+def test_ink_box_leaves_out_dust_but_keeps_dots_and_punctuation():
+    img = _formula(400, 300)
+    img.paste(0, (390, 290, 392, 292))  # dust far below and to the right
+    img.paste(0, (5, 5, 7, 7))  # above and to the left
+    img.paste(0, (200, 2, 202, 4))  # beside the formula, above its line
+    assert ink_box(img) == (46, 16, 124, 39)
+    img.paste(0, (80, 10, 82, 12))  # a dot just above the formula
+    img.paste(0, (150, 32, 153, 35))  # a full stop a \quad after it, on its line
+    assert ink_box(img) == (46, 6, 157, 39)
+
+
 def test_fit_keeps_aspect_ratio_and_limits_enlarging():
     assert fit(2000, 100, max_h=256, max_w=1024) == (1024, 51)
     assert fit(40, 20, max_h=256, max_w=1024) == (80, 40)  # at most 2x larger
