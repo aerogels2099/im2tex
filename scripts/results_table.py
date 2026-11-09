@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 ORDER = ["unimer_spe", "unimer_cpe", "unimer_sce", "unimer_hwe", "crohme2014", "crohme2016", "crohme2019",
-         "mathwriting", "im2latex"]
+         "mathwriting", "im2latex", "crohme2023", "omnidoc_slides", "omnidoc_textbooks", "omnidoc_papers"]
 METRICS = {"image_match": "renders identically", "exprate": "exact match (normalized)",
            "bleu4": "BLEU-4 (normalized)", "sec_per_image": "seconds per image"}
 

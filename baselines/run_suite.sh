@@ -9,7 +9,9 @@ cd "$(dirname "$0")/.."
 export PYTHONPATH=$PWD
 SETS="unimer_spe:unimer/test/spe unimer_cpe:unimer/test/cpe unimer_sce:unimer/test/sce unimer_hwe:unimer/test/hwe
       crohme2014:crohme/2014 crohme2016:crohme/2016 crohme2019:crohme/2019
-      mathwriting:mathwriting/prepared/test im2latex:im2latex100k/test"
+      mathwriting:mathwriting/prepared/test im2latex:im2latex100k/test crohme2023:crohme2023/test
+      omnidoc_slides:omnidocbench/slides_notes omnidoc_textbooks:omnidocbench/textbooks
+      omnidoc_papers:omnidocbench/papers_exams"
 for s in $SETS; do
   name=${s%%:*} dir=${s#*:}
   out=runs/$MODEL/$name.jsonl
