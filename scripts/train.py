@@ -176,6 +176,7 @@ def main():
             print(json.dumps(entry), flush=True)
             log.write(json.dumps(entry) + "\n")
             log.flush()
+            t0, images_seen, tokens_seen = time.time(), 0, 0  # throughput is per log window
 
 
 if __name__ == "__main__":
