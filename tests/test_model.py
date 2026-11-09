@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 from im2tex.model import Im2Tex, load_checkpoint, save_checkpoint
@@ -24,7 +25,44 @@ def test_untrained_model_predicts_close_to_uniform():
     assert abs(loss.item() - torch.log(torch.tensor(3000.0)).item()) < 1.0
 
 
-def test_generate_never_closes_unopened_braces_or_ends_with_open_ones():
+def _until_eos(row):
+    return row[:row.index(EOS) + 1] if EOS in row else row
+
+
+def test_cached_step_matches_full_decoder():
+    model = _tiny()
+    with torch.no_grad():
+        memory = model.encode(torch.rand(3, 1, 32, 64))
+        tokens = torch.randint(0, 20, (3, 12))
+        full = model.decode(memory, tokens)
+        cross, cache = model._cross_kv(memory), [[None, None] for _ in model.decoder.layers]
+        for t in range(12):
+            assert torch.allclose(model._step(tokens[:, t], t, cross, cache, 12), full[:, t], atol=1e-5), t
+
+
+def test_greedy_matches_rerunning_the_full_decoder():
+    model = _tiny()
+    images = torch.rand(4, 1, 32, 64)
+    with torch.no_grad():  # the slow way: rerun the decoder over the whole prefix for every token
+        memory, slow = model.encode(images), torch.full((4, 1), BOS)
+        for _ in range(14):
+            slow = torch.cat([slow, model.decode(memory, slow)[:, -1].argmax(-1, keepdim=True)], 1)
+    fast = model.generate(images, BOS, EOS, max_len=15)
+    assert [_until_eos(r) for r in fast.tolist()] == [_until_eos(r) for r in slow.tolist()]
+
+
+def test_beam_search_keeps_images_apart():
+    model = _tiny()
+    images = torch.rand(3, 1, 32, 64)
+    together = model.generate(images, BOS, EOS, beams=4)
+    for i in range(3):
+        alone = model.generate(images[i:i + 1], BOS, EOS, beams=4)[0]
+        assert together[i, :len(alone)].tolist() == alone.tolist()
+        assert (together[i, len(alone):] == EOS).all()
+
+
+@pytest.mark.parametrize("beams", [1, 4])
+def test_generate_never_closes_unopened_braces_or_ends_with_open_ones(beams):
     model = _tiny()
     with torch.no_grad():  # make braces likely, so the constraint actually has work to do
         model.head.weight[OPEN] *= 0
@@ -33,7 +71,7 @@ def test_generate_never_closes_unopened_braces_or_ends_with_open_ones():
         model.head.weight[CLOSE] += 1.0
     delta = torch.zeros(20, dtype=torch.long)
     delta[OPEN], delta[CLOSE] = 1, -1
-    out = model.generate(torch.rand(8, 1, 32, 64), BOS, EOS, brace_delta=delta)
+    out = model.generate(torch.rand(8, 1, 32, 64), BOS, EOS, brace_delta=delta, beams=beams)
     for row in out.tolist():
         depth = 0
         for t in row[1:]:
