@@ -5,6 +5,7 @@ from pathlib import Path
 from PIL import Image
 
 from im2tex.normalize import normalize
+from im2tex.page import normalize_page
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
 from label import import_images, load_labels, save_label  # noqa: E402
@@ -37,3 +38,14 @@ def test_save_writes_only_valid_labels_and_skips_unusable_images(tmp_path):
     assert _rows(tmp_path / "refs.jsonl") == [{"id": "a", "image": "images/a.png", "ref": r"x^{3}",
                                                "norm": normalize(r"x^{3}")}]
     assert load_labels(tmp_path) == {"a": {"ref": r"x^{3}"}, "b": {"skip": True}}
+
+
+def test_page_labels_check_every_formula_and_store_the_normalized_page(tmp_path):
+    labels = {}
+    page = "Let $x^2$ be\n$$\\frac{a}{b}$$\nand that's all"
+    assert save_label(tmp_path, labels, "p", page, pages=True) is None
+    assert "never closed" in save_label(tmp_path, labels, "q", "an $x^2 unclosed", pages=True)
+    assert r"\notacommand" in save_label(tmp_path, labels, "q", r"ok $x$ but $\notacommand y$", pages=True)
+    assert save_label(tmp_path, labels, "r", "only words, no math", pages=True) is None
+    rows = _rows(tmp_path / "refs.jsonl")
+    assert [r["id"] for r in rows] == ["p", "r"] and rows[0]["norm"] == normalize_page(page)
