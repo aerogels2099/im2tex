@@ -104,29 +104,11 @@ def load_trocr_ft():
                                    "checkpoints", "trocr-small-ft"))
 
 
-def load_im2tex(run):
+def load_im2tex(run, beams=1):
     """Our model: the best checkpoint of training run <data>/runs/<run>."""
-    import os
+    from im2tex.inference import load_predictor
 
-    from im2tex.data import collate, preprocess
-    from im2tex.model import load_checkpoint
-    from im2tex.tokenizer import BOS, EOS, brace_delta, load
-
-    torch.backends.cudnn.enabled = False  # every test image is a new shape; see scripts/train.py
-    data = os.environ.get("IM2TEX_DATA", os.path.expanduser("~/im2tex-data"))
-    run_dir = os.path.join(data, "runs", run)
-    args = json.load(open(os.path.join(run_dir, "args.json")))
-    model, _ = load_checkpoint(os.path.join(run_dir, "best.pt"))
-    tok = load(os.path.join(data, "tokenizer.json"))
-    delta = torch.tensor(brace_delta(tok), device="cuda")
-
-    def predict(images):
-        x = collate([(preprocess(im, args["max_h"], args["max_w"]), torch.zeros(1)) for im in images])[0]
-        with torch.autocast("cuda", dtype=torch.bfloat16):
-            out = model.generate(x.cuda(), tok.token_to_id(BOS), tok.token_to_id(EOS), brace_delta=delta)
-        return tok.decode_batch(out.tolist())
-
-    return predict
+    return load_predictor(run, beams=beams)
 
 
 MODELS = {"pix2tex": load_pix2tex, "got_ocr": load_got_ocr, "texify": load_texify, "unimernet": load_unimernet,
@@ -158,11 +140,14 @@ if __name__ == "__main__":
     ap.add_argument("out", type=Path)
     ap.add_argument("--limit", type=int, help="fixed subset of this many rows (same for every model)")
     ap.add_argument("--batch", type=int, default=1, help="GOT-OCR needs 3.4 GB at 1, 5.7 GB at 2")
+    ap.add_argument("--beams", type=int, default=1, help="beam search width (our model only)")
     args = ap.parse_args()
 
     print(f"memory cap {cap_memory():.1f} GB")
     if args.model.startswith("im2tex-"):
-        predict = load_im2tex(args.model.removeprefix("im2tex-"))
+        predict = load_im2tex(args.model.removeprefix("im2tex-"), args.beams)
+    elif args.beams > 1:
+        ap.error("--beams is only implemented for our model (im2tex-<run>)")
     elif args.model in MODELS:
         predict = MODELS[args.model]()
     else:

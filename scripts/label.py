@@ -19,8 +19,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import unquote
 
-from PIL import Image, ImageOps
+from PIL import Image
 
+from im2tex.inference import load_image
 from im2tex.normalize import NormalizeError, normalize
 from im2tex.render.latex_batch import render
 
@@ -33,10 +34,7 @@ def import_images(source: Path, split: Path) -> list[str]:
     for p in sorted(source.iterdir()):
         dst = split / "images" / (re.sub(r"[^A-Za-z0-9_-]+", "_", p.name) + ".png")
         if p.suffix.lower() in EXTENSIONS and not dst.exists():
-            im = ImageOps.exif_transpose(Image.open(p))  # phone photos are often stored sideways
-            if "A" in im.getbands():  # transparent pixels would turn black
-                im = Image.alpha_composite(Image.new("RGBA", im.size, "white"), im.convert("RGBA"))
-            im.convert("RGB").save(dst)
+            load_image(p).save(dst)
     ids = sorted(f.stem for f in (split / "images").glob("*.png"))
     (split / "all").mkdir(exist_ok=True)
     with (split / "all" / "refs.jsonl").open("w", encoding="utf-8") as f:
