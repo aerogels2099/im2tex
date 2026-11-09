@@ -98,7 +98,7 @@ if __name__ == "__main__":
         step = state["step"]
         print(f"resumed at step {step}")
 
-    t0, seen = time.time(), 0
+    t0, seen = time.monotonic(), 0
     for pixels, labels in loader:
         if step >= args.steps:
             break
@@ -113,7 +113,7 @@ if __name__ == "__main__":
         seen += len(pixels)
         if step % 100 == 0:
             print(f"step {step} loss {loss.item():.3f} lr {sched.get_last_lr()[0]:.2e} "
-                  f"{seen / (time.time() - t0):.0f} img/s", flush=True)
+                  f"{seen / (time.monotonic() - t0):.0f} img/s", flush=True)
         if step % args.every == 0 or step == args.steps:
             print(f"step {step} val_loss {val_loss(model, val_loader):.3f}", flush=True)
             model.save_pretrained(args.out)

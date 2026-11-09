@@ -139,7 +139,7 @@ def main():
     loader = DataLoader(train_set, batch_sampler=sampler, collate_fn=collate, num_workers=args.workers,
                         pin_memory=True, persistent_workers=True, prefetch_factor=4)
     log = (run / "log.jsonl").open("a")
-    t0, images_seen, tokens_seen = time.time(), 0, 0
+    t0, images_seen, tokens_seen = time.monotonic(), 0, 0
     for images, tokens in loader:
         if step >= args.steps:
             break
@@ -161,7 +161,7 @@ def main():
 
         entry = {}
         if step % args.log_every == 0:
-            dt = time.time() - t0
+            dt = time.monotonic() - t0
             entry |= {"loss": round(loss.item(), 4), "grad_norm": round(grad_norm.item(), 3),
                       "lr": lr_at(step, args), "img_per_s": round(images_seen / dt, 1),
                       "tok_per_s": round(tokens_seen / dt), "batch": len(images),
@@ -178,7 +178,7 @@ def main():
             print(json.dumps(entry), flush=True)
             log.write(json.dumps(entry) + "\n")
             log.flush()
-            t0, images_seen, tokens_seen = time.time(), 0, 0  # throughput is per log window
+            t0, images_seen, tokens_seen = time.monotonic(), 0, 0  # throughput is per log window
 
 
 if __name__ == "__main__":
