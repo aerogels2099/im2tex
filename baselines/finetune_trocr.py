@@ -2,7 +2,7 @@
 
 TrOCR squashes every image to 384x384 and keeps its own text tokenizer; that is the point of the comparison.
 Resumable: re-running continues from the last checkpoint in --out.
-    python baselines/finetune_trocr.py --steps 30000
+    python baselines/finetune_trocr.py --steps 60000
 """
 import argparse
 import io
@@ -59,8 +59,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="microsoft/trocr-small-printed")
     ap.add_argument("--out", type=Path, default=DATA / "checkpoints" / "trocr-small-ft")
-    ap.add_argument("--steps", type=int, default=30000)
-    ap.add_argument("--batch", type=int, default=24)
+    ap.add_argument("--steps", type=int, default=60000)
+    ap.add_argument("--batch", type=int, default=12, help="24 runs out of memory on 8 GB with 512-token labels")
     ap.add_argument("--lr", type=float, default=5e-5)
     ap.add_argument("--max-len", type=int, default=512, help="label tokens (TrOCR's own tokenizer)")
     ap.add_argument("--workers", type=int, default=12)
