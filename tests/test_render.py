@@ -33,3 +33,8 @@ def test_percent_comment_does_not_swallow_the_closing_delimiter():
 def test_comment_at_line_end_continues_the_formula():
     a, b = render(["x +%\ny", "x + y"])
     assert image_match(a, b)
+
+
+def test_equation_numbers_are_dropped_instead_of_failing():
+    a, b, c = render([r"x = 1 \tag{12}", r"x = 1 \tag*{(A. 4)}", "x = 1"])
+    assert image_match(a, c) and image_match(b, c)
