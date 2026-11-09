@@ -101,6 +101,7 @@ and each keeps its own license.
 | OmniDocBench | research only, non-commercial | test |
 | im2latex-100k | see the dataset card (`yuntian-deng/im2latex-100k`) | test |
 | HME100K | the provider's terms (manual download) | training, if downloaded |
+| Handwritten notes pages (HumynLabs) | unclear: listed as CC BY 4.0, but the pages credit pkalika.in | test |
 
 **Model weights** trained here learn from MathWriting and CROHME, so share them for research and personal
 use only, under the same non-commercial terms, and list the datasets above alongside them.

@@ -61,6 +61,7 @@ pygments==2.21.0
 pymupdf==2.1
 pymupdf-layout==2.1
 pymupdf4llm==2.1
+pypdfium2==5.15.2
 pytest==9.2.0
 python-dateutil==4.0.0
 pyyaml==6.0.3

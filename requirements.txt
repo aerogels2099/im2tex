@@ -5,6 +5,7 @@ datasets
 tokenizers
 sentencepiece
 pymupdf
+pypdfium2
 pillow
 numpy
 sacrebleu
