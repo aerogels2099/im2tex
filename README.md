@@ -86,3 +86,22 @@ Every model writes the same JSONL (`{"id", "pred", "ref"}`), so `evaluate.py` sc
 | `image_match` | prediction renders pixel-identical to the reference (after trimming whitespace) |
 
 Samples whose *reference* fails to compile are excluded from the image metrics.
+
+## Licenses
+
+The code is MIT-licensed (see `LICENSE`). No data or model weights are included: the scripts download them,
+and each keeps its own license.
+
+| Data | License | Used for |
+|---|---|---|
+| UniMER-1M, UniMER-Test | Apache-2.0 | training, test |
+| MathWriting | CC BY-NC-SA 4.0 (non-commercial) | training, test |
+| CROHME 2014–2019 (CoMER's copy) | CC BY-NC-SA 3.0 (non-commercial) | training, test |
+| CROHME 2023 | CC BY-NC-SA 3.0 (non-commercial) | test |
+| OmniDocBench | research only, non-commercial | test |
+| im2latex-100k | see the dataset card (`yuntian-deng/im2latex-100k`) | test |
+| HME100K | the provider's terms (manual download) | training, if downloaded |
+
+**Model weights** trained here learn from MathWriting and CROHME, so share them for research and personal
+use only, under the same non-commercial terms, and list the datasets above alongside them.
+The comparison models in `baselines/` are downloaded at run time and keep their own licenses.
