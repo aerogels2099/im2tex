@@ -93,7 +93,9 @@ def main():
     print(f"memory cap {cap_memory():.1f} GB")
     torch.manual_seed(args.seed)
     torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
+    # cuDNN builds kernels for every new input shape (~4 s per step here), and size-bucketed batches bring a new
+    # shape almost every step; PyTorch's own kernels are ~30% slower on a repeated shape but cost nothing per shape.
+    torch.backends.cudnn.enabled = False
     tok = load(DATA / "tokenizer.json")
     delta = torch.tensor(brace_delta(tok), device="cuda")
 

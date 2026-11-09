@@ -112,6 +112,7 @@ def load_im2tex(run):
     from im2tex.model import load_checkpoint
     from im2tex.tokenizer import BOS, EOS, brace_delta, load
 
+    torch.backends.cudnn.enabled = False  # every test image is a new shape; see scripts/train.py
     data = os.environ.get("IM2TEX_DATA", os.path.expanduser("~/im2tex-data"))
     run_dir = os.path.join(data, "runs", run)
     args = json.load(open(os.path.join(run_dir, "args.json")))
