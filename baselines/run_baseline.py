@@ -104,11 +104,11 @@ def load_trocr_ft():
                                    "checkpoints", "trocr-small-ft"))
 
 
-def load_im2tex(run, beams=1):
+def load_im2tex(run, beams=1, both_sizes=True):
     """Our model: the best checkpoint of training run <data>/runs/<run>."""
     from im2tex.inference import load_predictor
 
-    return load_predictor(run, beams=beams)
+    return load_predictor(run, beams=beams, both_sizes=both_sizes)
 
 
 MODELS = {"pix2tex": load_pix2tex, "got_ocr": load_got_ocr, "texify": load_texify, "unimernet": load_unimernet,
@@ -141,13 +141,14 @@ if __name__ == "__main__":
     ap.add_argument("--limit", type=int, help="fixed subset of this many rows (same for every model)")
     ap.add_argument("--batch", type=int, default=1, help="GOT-OCR needs 3.4 GB at 1, 5.7 GB at 2")
     ap.add_argument("--beams", type=int, default=1, help="beam search width (our model only)")
+    ap.add_argument("--one-size", action="store_true", help="read small images only enlarged (our model only)")
     args = ap.parse_args()
 
     print(f"memory cap {cap_memory():.1f} GB")
     if args.model.startswith("im2tex-"):
-        predict = load_im2tex(args.model.removeprefix("im2tex-"), args.beams)
-    elif args.beams > 1:
-        ap.error("--beams is only implemented for our model (im2tex-<run>)")
+        predict = load_im2tex(args.model.removeprefix("im2tex-"), args.beams, both_sizes=not args.one_size)
+    elif args.beams > 1 or args.one_size:
+        ap.error("--beams and --one-size are only implemented for our model (im2tex-<run>)")
     elif args.model in MODELS:
         predict = MODELS[args.model]()
     else:

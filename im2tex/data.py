@@ -39,11 +39,11 @@ def to_tensor(img: Image.Image) -> torch.Tensor:
     return torch.from_numpy(255 - np.asarray(img, dtype=np.uint8)).float().div_(255).unsqueeze(0)
 
 
-def preprocess(img: Image.Image, max_h: int, max_w: int, box=None) -> torch.Tensor:
+def preprocess(img: Image.Image, max_h: int, max_w: int, box=None, max_up: float = 2.0) -> torch.Tensor:
     """Inference path: grayscale, crop to ink, fit. Training adds augmentation (see FormulaDataset)."""
     img = img.convert("L")
     img = img.crop(box or ink_box(img))
-    return to_tensor(img.resize(fit(*img.size, max_h, max_w), Image.BILINEAR))
+    return to_tensor(img.resize(fit(*img.size, max_h, max_w, max_up), Image.BILINEAR))
 
 
 class FormulaDataset(torch.utils.data.Dataset):
