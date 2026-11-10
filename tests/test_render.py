@@ -43,6 +43,15 @@ def test_equation_numbers_are_dropped_instead_of_failing():
     assert image_match(a, c) and image_match(b, c)
 
 
+def test_trailing_space_widens_the_page_but_not_the_scale():
+    # A page is a whole number of pixels; if the page were stretched to fill them, every width would get its
+    # own scale and the same formula would land on different pixels.
+    formulas = [r"\frac{a}{b} + \sum_{i=1}^{n} x_i^2 = 0", r"\frac{a}{b} + \sum_{i=1}^{n} x_i^2 = 0 \qquad \qquad"]
+    formulas += [f + r"\hspace{%.2fpt}" % (0.13 * k) for k in range(1, 9) for f in formulas[:1]]
+    out = render(formulas)
+    assert all(image_match(out[0], o) for o in out[1:])
+
+
 def test_parallel_batches_never_rasterize_at_once_and_render_like_one_thread(monkeypatch):
     active, peak, guard = [0], [0], threading.Lock()
     rasterize = latex_batch._rasterize

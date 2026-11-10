@@ -5,6 +5,7 @@ have to be isolated: a run counts only if the log has no errors AND it produced 
 Otherwise the formulas blamed by the log are retried alone and the rest are retried as a batch;
 if that still fails, the batch is split in half.
 """
+import math
 import re
 import subprocess
 import tempfile
@@ -13,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pypdfium2 as pdfium
+import pypdfium2.raw as pdfium_c
 
 PDFLATEX_PREAMBLE = r"""\documentclass{article}
 \usepackage{amsmath,amssymb,mathrsfs,bm,mathtools,cancel,upgreek,stmaryrd,esint}
@@ -97,4 +99,14 @@ def _run_tex(batch, dpi, preamble, engine, style):
 
 
 def _rasterize(page, dpi):
-    return page.render(scale=dpi / 72, grayscale=True).to_numpy().copy()  # copy: the bitmap is freed on close
+    # PDFium stretches a page to fill the bitmap, which is whole pixels, so the scale would depend on the page
+    # size: the same formula with trailing space would land on different pixels. Growing the page right and down
+    # to whole pixels first, its top-left corner fixed, keeps the scale exactly dpi / 72 for every page.
+    s = dpi / 72
+    left, bottom, right, top = page.get_mediabox()
+    w, h = math.ceil((right - left) * s), math.ceil((top - bottom) * s)
+    page.set_mediabox(left, top - h / s, left + w / s, top)
+    bitmap = pdfium.PdfBitmap.new_native(w, h, pdfium_c.FPDFBitmap_Gray)
+    bitmap.fill_rect((255, 255, 255, 255), 0, 0, w, h)
+    pdfium_c.FPDF_RenderPageBitmap(bitmap, page, 0, 0, w, h, 0, pdfium_c.FPDF_GRAYSCALE | pdfium_c.FPDF_ANNOT)
+    return bitmap.to_numpy().copy()  # copy: the bitmap is freed on close
