@@ -14,59 +14,18 @@ from im2tex.augment import augment
 
 INK = 200  # pixels darker than this count as ink when cropping
 MARGIN = 4  # pixels kept around the ink
-SPECK = 0.01  # most of the ink a cluster at the edge can hold and still be dropped as dust
 PAD_ID = 0  # tokenizer's <pad>
 
 
-def _clusters(counts, gap):
-    """Runs of ink along one axis, split where more than gap lines are empty: starts, ends, share of the ink."""
-    at = np.flatnonzero(counts)
-    cut = np.flatnonzero(np.diff(at) > gap + 1)
-    starts, ends = at[np.r_[0, cut + 1]], at[np.r_[cut, at.size - 1]] + 1
-    total = np.r_[0, np.cumsum(counts)]
-    return starts, ends, (total[ends] - total[starts]) / total[-1]
-
-
-def _trim(starts, ends, dust):
-    """[start, end) of the clusters left after dropping clusters from both ends while dust(cluster) holds."""
-    lo, hi = 0, len(starts) - 1
-    while lo < hi and dust(lo):
-        lo += 1
-    while hi > lo and dust(hi):
-        hi -= 1
-    return starts[lo], ends[hi]
-
-
 def ink_box(img: Image.Image):
-    """(x0, y0, x1, y1) of the ink plus a small margin; the whole image if it has no ink.
-
-    Specks of dust on a scan are left out: clusters at the edge with under 1% of the ink, more than the
-    formula's height (the middle 90% of its ink rows) away from the rest and off the formula's line. A full
-    stop a \\quad after a formula stays: it sits on the line."""
-    ink = np.asarray(img) < INK
-    if not ink.any():
-        return 0, 0, ink.shape[1], ink.shape[0]
-    x0, y0, x1, y1 = 0, 0, ink.shape[1], ink.shape[0]
-    while True:
-        win = ink[y0:y1, x0:x1]
-        rows, cols = win.sum(1), win.sum(0)
-        cum = np.cumsum(rows)
-        line_top, line_bottom = np.searchsorted(cum, 0.05 * cum[-1]), np.searchsorted(cum, 0.95 * cum[-1])
-        height = line_bottom - line_top + 1
-        s, e, share = _clusters(rows, height)
-        top, bottom = _trim(s, e, lambda i: share[i] < SPECK)  # far above or below: off the line by definition
-        s, e, share = _clusters(cols, height)
-
-        def off_line(i):  # beside the formula, punctuation sits on its line; dust can be anywhere
-            on = np.flatnonzero(win[:, s[i]:e[i]].any(1))
-            return share[i] < SPECK and (on[-1] < line_top or on[0] > line_bottom)
-        left, right = _trim(s, e, off_line)
-        box = x0 + left, y0 + top, x0 + right, y0 + bottom
-        if box == (x0, y0, x1, y1):
-            break
-        x0, y0, x1, y1 = box
-    return (max(x0 - MARGIN, 0), max(y0 - MARGIN, 0),
-            min(x1 + MARGIN, ink.shape[1]), min(y1 + MARGIN, ink.shape[0]))
+    """(x0, y0, x1, y1) of the ink plus a small margin; the whole image if it has no ink."""
+    a = np.asarray(img)
+    ink = a < INK
+    rows, cols = np.flatnonzero(ink.any(1)), np.flatnonzero(ink.any(0))
+    if rows.size == 0:
+        return 0, 0, a.shape[1], a.shape[0]
+    return (max(cols[0] - MARGIN, 0), max(rows[0] - MARGIN, 0),
+            min(cols[-1] + MARGIN + 1, a.shape[1]), min(rows[-1] + MARGIN + 1, a.shape[0]))
 
 
 def fit(w: int, h: int, max_h: int, max_w: int, max_up: float = 2.0):
