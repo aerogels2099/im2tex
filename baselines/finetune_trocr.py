@@ -60,7 +60,9 @@ if __name__ == "__main__":
     ap.add_argument("--base", default="microsoft/trocr-small-printed")
     ap.add_argument("--out", type=Path, default=DATA / "checkpoints" / "trocr-small-ft")
     ap.add_argument("--steps", type=int, default=60000)
-    ap.add_argument("--batch", type=int, default=12, help="24 runs out of memory on 8 GB with 512-token labels")
+    ap.add_argument("--batch", type=int, default=12)
+    ap.add_argument("--micro", type=int, default=6, help="samples per forward pass: a batch of 12 with a "
+                    "512-token label runs out of memory on 8 GB (the loss holds fp32 logits over a 64k vocab)")
     ap.add_argument("--lr", type=float, default=5e-5)
     ap.add_argument("--max-len", type=int, default=512, help="label tokens (TrOCR's own tokenizer)")
     ap.add_argument("--workers", type=int, default=12)
@@ -102,9 +104,13 @@ if __name__ == "__main__":
     for pixels, labels in loader:
         if step >= args.steps:
             break
-        with torch.autocast("cuda", dtype=torch.bfloat16):
-            loss = model(pixel_values=pixels.cuda(non_blocking=True), labels=labels.cuda(non_blocking=True)).loss
-        loss.backward()
+        tokens, batch_loss = (labels != -100).sum(), 0.0
+        for px, lb in zip(pixels.split(args.micro), labels.split(args.micro)):
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                loss = model(pixel_values=px.cuda(non_blocking=True), labels=lb.cuda(non_blocking=True)).loss
+            loss = loss * (lb != -100).sum() / tokens  # weighted by tokens: sums to the whole batch's mean loss
+            loss.backward()
+            batch_loss += loss.detach()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
         sched.step()
@@ -112,7 +118,7 @@ if __name__ == "__main__":
         step += 1
         seen += len(pixels)
         if step % 100 == 0:
-            print(f"step {step} loss {loss.item():.3f} lr {sched.get_last_lr()[0]:.2e} "
+            print(f"step {step} loss {batch_loss.item():.3f} lr {sched.get_last_lr()[0]:.2e} "
                   f"{seen / (time.monotonic() - t0):.0f} img/s", flush=True)
         if step % args.every == 0 or step == args.steps:
             print(f"step {step} val_loss {val_loss(model, val_loader):.3f}", flush=True)
