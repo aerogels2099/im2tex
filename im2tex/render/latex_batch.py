@@ -8,11 +8,11 @@ if that still fails, the batch is split in half.
 import re
 import subprocess
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import numpy as np
-import pymupdf
+import pypdfium2 as pdfium
 
 PDFLATEX_PREAMBLE = r"""\documentclass{article}
 \usepackage{amsmath,amssymb,mathrsfs,bm,mathtools,cancel,upgreek,stmaryrd,esint}
@@ -26,6 +26,9 @@ _COMMENT = re.compile(r"(?<!\\)%[^\n]*\n?")  # like TeX, a comment also eats its
 # Equation numbers: amsmath forbids \tag in inline math, and a number isn't part of the formula (the
 # normalizer drops it too), so it's removed instead of failing the whole formula.
 _TAG = re.compile(r"\\tag\*?\s*\{[^{}]*\}")
+# PDFium isn't thread-safe ("Failed to load page" when batches rasterize at once): the TeX runs stay parallel,
+# only reading their PDFs is one at a time.
+_PDFIUM = threading.Lock()
 
 
 def render(formulas: list[str], dpi: int = 200, preamble: str = PDFLATEX_PREAMBLE,
@@ -86,13 +89,12 @@ def _run_tex(batch, dpi, preamble, engine, style):
         err_lines = [int(m) for m in _ERROR_LINE.findall(log)]
         pdf = Path(tmp, "doc.pdf")
         if not err_lines and "\n! " not in log and pdf.exists():
-            with pymupdf.open(pdf) as doc:
-                if doc.page_count == len(batch):
+            with _PDFIUM, pdfium.PdfDocument(pdf) as doc:
+                if len(doc) == len(batch):
                     return [_rasterize(page, dpi) for page in doc], set()
     blamed = {max(j for j, s in enumerate(starts) if s <= n) for n in err_lines if n >= starts[0]} if starts else set()
     return None, blamed
 
 
 def _rasterize(page, dpi):
-    pix = page.get_pixmap(dpi=dpi, colorspace=pymupdf.csGRAY, alpha=False)
-    return np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.stride)[:, : pix.width].copy()
+    return page.render(scale=dpi / 72, grayscale=True).to_numpy().copy()  # copy: the bitmap is freed on close
