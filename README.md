@@ -52,7 +52,10 @@ python scripts/check_normalizer.py <refs.jsonl or formulas.txt>   # errors, idem
 ```bash
 python scripts/index_shards.py                       # ink boxes + token counts, once after build_shards
 python scripts/train.py --run base --compile         # ConvNeXt-T encoder + 6-layer decoder, ~7 h on an RTX 5060
+python scripts/train.py --run run2 --init ~/im2tex-data/runs/base/best.pt --steps 50000 --lr 1e-4 --warmup 1000 --compile
 ```
+
+`predict.py` uses `run2` by default: the `base` weights trained 50k more steps at a lower learning rate (~3.5 h).
 
 Resumable: rerunning the same `--run` continues from `runs/<run>/last.pt` (saved every 1000 steps).
 Logs go to `runs/<run>/log.jsonl`; `best.pt` is the checkpoint with the best validation exact match.
