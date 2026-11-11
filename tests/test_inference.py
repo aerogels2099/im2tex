@@ -37,7 +37,7 @@ def test_predictor_loads_a_run_and_returns_one_string_per_image(tmp_path, monkey
         assert len(out) == 2 and all(isinstance(s, str) for s in out)
 
 
-def test_both_sizes_keeps_the_surer_reading_and_reads_unenlarged_images_once(tmp_path, monkeypatch):
+def test_both_sizes_keeps_the_surer_reading_stops_loops_and_reads_unenlarged_images_once(tmp_path, monkeypatch):
     monkeypatch.setattr(inference, "DATA", tmp_path)
     tok = train([r"x ^ { 2 }", r"\frac { a } { b }"] * 5, vocab_size=120)
     tok.save(str(tmp_path / "tokenizer.json"))
@@ -45,15 +45,20 @@ def test_both_sizes_keeps_the_surer_reading_and_reads_unenlarged_images_once(tmp
     (tmp_path / "runs" / "fake" / "args.json").write_text(json.dumps({"max_h": 64, "max_w": 256}))
     enlarged, native = (tok.decode(tok.encode(s).ids) for s in (r"x ^ { 2 }", r"\frac { a } { b }"))
 
-    class Model:  # reads x^2 from wide (enlarged) inputs and \frac{a}{b} from narrow ones
+    class Model:  # reads x^2 from wide (enlarged) inputs and \frac{a}{b} (or x x x ... if it loops) from narrow ones
         config = {"max_tokens": 12}
 
-        def __init__(self, sure_of):
-            self.sure_of, self.reads = sure_of, 0
+        def __init__(self, sure_of, loops):
+            self.sure_of, self.loops, self.reads, self.max_len = sure_of, loops, 0, None
 
-        def generate(self, images, bos, eos, **kw):
+        def generate(self, images, bos, eos, max_len=None, **kw):
             self.reads += 1
-            return torch.tensor([tok.encode(enlarged if images.shape[-1] > 128 else native).ids] * len(images))
+            if images.shape[-1] > 128:
+                ids = tok.encode(enlarged).ids
+            else:
+                self.max_len = max_len
+                ids = [bos] + tok.encode("x").ids[1:2] * (max_len - 1) if self.loops else tok.encode(native).ids
+            return torch.tensor([ids] * len(images))
 
         def __call__(self, images, tokens):  # uniform on the side it's sure of; elsewhere mass on padding
             logits = torch.zeros(1, tokens.shape[1], tok.get_vocab_size())
@@ -61,8 +66,8 @@ def test_both_sizes_keeps_the_surer_reading_and_reads_unenlarged_images_once(tmp
                 logits[..., 0] = 10
             return logits
 
-    def predictor(sure_of):
-        model = Model(sure_of)
+    def predictor(sure_of, loops=False):
+        model = Model(sure_of, loops)
         monkeypatch.setattr(inference, "load_checkpoint", lambda path, device: (model, None))
         return inference.load_predictor("fake", device="cpu"), model
 
@@ -78,3 +83,6 @@ def test_both_sizes_keeps_the_surer_reading_and_reads_unenlarged_images_once(tmp
     assert predict([small]) == [enlarged] and model.reads == 2
     predict, model = predictor("native")
     assert predict([big]) == [enlarged] and model.reads == 1
+    predict, model = predictor("native", loops=True)  # sure of a second reading that never ends
+    n = len(tok.encode(enlarged).ids) - 2
+    assert predict([small]) == [enlarged] and model.max_len <= 2 * n + 22

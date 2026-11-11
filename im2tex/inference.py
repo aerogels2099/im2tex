@@ -26,7 +26,9 @@ def load_predictor(run: str = "base", device: str = "cuda", beams: int = 1, both
 
     Images are enlarged up to 2x to fit, which suits renders like the training data but hurts real scans and
     documents. With both_sizes, an image that gets enlarged is also read at its own size, and where the two
-    readings differ the one with the higher mean token log-probability is kept."""
+    readings differ the one with the higher mean token log-probability is kept. A second reading more than
+    2x + 20 tokens longer than the first is the model looping, so it is stopped there and dropped: the longest
+    right one in the test sets was 2.5x but only 15 tokens longer."""
     if device == "cuda":
         torch.backends.cudnn.enabled = False  # every image is a new shape; see scripts/train.py
     run_dir = DATA / "runs" / run
@@ -39,11 +41,13 @@ def load_predictor(run: str = "base", device: str = "cuda", beams: int = 1, both
     def batch(xs):
         return collate([(x, torch.zeros(1)) for x in xs])[0].to(device)
 
-    def read(xs):
+    def read(xs, max_len=None):
+        """-> LaTeX strings and their token counts (without <bos> and <eos>)."""
+        eos = tok.token_to_id(EOS)
         with torch.autocast(**autocast):
-            out = model.generate(batch(xs), tok.token_to_id(BOS), tok.token_to_id(EOS), brace_delta=delta,
+            out = model.generate(batch(xs), tok.token_to_id(BOS), eos, max_len=max_len, brace_delta=delta,
                                  beams=beams)
-        return tok.decode_batch(out.tolist())
+        return tok.decode_batch(out.tolist()), (out[:, 1:] != eos).sum(1).tolist()
 
     @torch.no_grad()
     def mean_logp(x, latex):
@@ -54,13 +58,18 @@ def load_predictor(run: str = "base", device: str = "cuda", beams: int = 1, both
 
     def predict(images):
         big = [preprocess(im, args["max_h"], args["max_w"]) for im in images]
-        out = read(big)
+        out, lengths = read(big)
         if not both_sizes:
             return out
         small = [preprocess(im, args["max_h"], args["max_w"], max_up=1.0) for im in images]
         redo = [i for i, (a, b) in enumerate(zip(big, small)) if a.shape != b.shape]
-        for i, alt in zip(redo, read([small[i] for i in redo]) if redo else []):
-            if alt != out[i] and mean_logp(small[i], alt) > mean_logp(big[i], out[i]):
+        if not redo:
+            return out
+        cap = {i: 2 * lengths[i] + 20 for i in redo}
+        # Up to one token past the longest cap, so a reading that never ends counts as over its cap.
+        alts, alt_lengths = read([small[i] for i in redo], max_len=max(cap.values()) + 2)
+        for i, alt, n in zip(redo, alts, alt_lengths):
+            if n <= cap[i] and alt != out[i] and mean_logp(small[i], alt) > mean_logp(big[i], out[i]):
                 out[i] = alt
         return out
 
