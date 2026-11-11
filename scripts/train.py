@@ -65,6 +65,7 @@ def validate(model, batches, dataset, tok, delta):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", required=True, help="run name; checkpoints and logs go to <data>/runs/<run>")
+    ap.add_argument("--init", help="start from this checkpoint's weights (its architecture; new optimizer and schedule)")
     ap.add_argument("--steps", type=int, default=100_000)
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--warmup", type=int, default=2000)
@@ -120,6 +121,11 @@ def main():
         model.train()
         step = ckpt["step"]
         print(f"resuming {run.name} at step {step}")
+    elif args.init:
+        model, _ = load_checkpoint(args.init)
+        model.train()
+        ckpt, step = None, 0
+        print(f"starting from the weights in {args.init}")
     else:
         model = Im2Tex(tok.get_vocab_size(), d_model=args.d_model, n_layers=args.layers,
                        encoder=args.encoder, max_tokens=args.max_tokens).cuda()
