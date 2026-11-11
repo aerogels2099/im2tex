@@ -39,6 +39,19 @@ def test_augment_stays_inside_the_planned_size():
         assert out.mode == "L" and out.width <= 400 and out.height <= 60
 
 
+def test_augment_rarely_erases_a_thin_stroke():
+    # A 2 px stroke, like a fraction bar in a small printed render: a max filter (thinning) would wipe it out, and
+    # shrinking it for the low-resolution look leaves light gray that a fixed black/white threshold turns blank.
+    rng = np.random.default_rng(0)
+    img = Image.new("L", (300, 60), 255)
+    img.paste(0, (10, 30, 290, 32))
+    erased = 0
+    for _ in range(2000):
+        a = np.asarray(augment(img, (200, 40), rng), dtype=int)
+        erased += a.min() > np.median(a) - 25  # nothing clearly darker than the paper
+    assert erased < 10
+
+
 def test_draw_scales_put_median_symbols_between_8_or_12_and_60_px():
     u = draw_scales(np.array(["unimer"] * 20000 + ["mathwriting"] * 20000), np.random.default_rng(0))
     printed, handwritten = u[:20000] * PRINTED_SYMBOL_PX["unimer"], u[20000:] * HANDWRITTEN_SYMBOL_PX
