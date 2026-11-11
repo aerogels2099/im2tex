@@ -34,6 +34,22 @@ def fit(w: int, h: int, max_h: int, max_w: int, max_up: float = 2.0):
     return max(1, round(w * s)), max(1, round(h * s))
 
 
+def train_scale(w, h, max_h: int, max_w: int, u):
+    """Training scale: the inference one (fit, enlarging up to 2x) times u, but never past (max_h, max_w).
+    Takes numpy arrays too, for planning batches."""
+    limit = np.minimum(max_h / h, max_w / w)
+    return np.minimum(np.minimum(limit, 2.0) * u, limit)
+
+
+def planned_sizes(index, max_h: int, max_w: int, scales=None):
+    """(N, 3) for the batch sampler: height and width at train_scale, rounded up to multiples of 16, and token
+    count. index: (N, 5) crop boxes and token counts; scales: per-row u (augment.draw_scales), None = 1."""
+    w, h = index[:, 2] - index[:, 0], index[:, 3] - index[:, 1]
+    s = train_scale(w, h, max_h, max_w, 1.0 if scales is None else scales)
+    ceil16 = lambda x: (np.ceil(np.maximum(np.round(x), 1) / 16) * 16).astype(np.int64)  # noqa: E731
+    return np.column_stack([ceil16(h * s), ceil16(w * s), index[:, 4]])
+
+
 def to_tensor(img: Image.Image) -> torch.Tensor:
     """(1, H, W) float: ink 1, paper 0."""
     return torch.from_numpy(255 - np.asarray(img, dtype=np.uint8)).float().div_(255).unsqueeze(0)
@@ -48,11 +64,12 @@ def preprocess(img: Image.Image, max_h: int, max_w: int, box=None, max_up: float
 
 class FormulaDataset(torch.utils.data.Dataset):
     """Shard rows -> (image tensor, token ids). index: (N, 5) int array of crop box x0, y0, x1, y1 and
-    token count, from scripts/index_shards.py."""
+    token count, from scripts/index_shards.py. scales: per-row size factor when training (augment.draw_scales,
+    the same array the batch sampler planned with); None = the inference size."""
 
-    def __init__(self, rows, index, tokenizer, max_h, max_w, train):
+    def __init__(self, rows, index, tokenizer, max_h, max_w, train, scales=None):
         self.rows, self.index, self.tokenizer = rows, index, tokenizer
-        self.max_h, self.max_w, self.train = max_h, max_w, train
+        self.max_h, self.max_w, self.train, self.scales = max_h, max_w, train, scales
 
     def __len__(self):
         return len(self.rows)
@@ -60,11 +77,12 @@ class FormulaDataset(torch.utils.data.Dataset):
     def __getitem__(self, i):
         r = self.rows[int(i)]
         img = Image.open(io.BytesIO(r["image"])).convert("L").crop(tuple(int(v) for v in self.index[i, :4]))
-        size = fit(*img.size, self.max_h, self.max_w)
         if self.train:
-            img = augment(img, size, np.random.default_rng())
+            u = 1.0 if self.scales is None else self.scales[i]
+            s = train_scale(img.width, img.height, self.max_h, self.max_w, u)
+            img = augment(img, (max(1, round(img.width * s)), max(1, round(img.height * s))), np.random.default_rng())
         else:
-            img = img.resize(size, Image.BILINEAR)
+            img = img.resize(fit(*img.size, self.max_h, self.max_w), Image.BILINEAR)
         return to_tensor(img), torch.tensor(self.tokenizer.encode(r["label"]).ids)
 
 

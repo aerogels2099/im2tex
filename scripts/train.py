@@ -16,20 +16,13 @@ import torch.nn.functional as F
 from datasets import load_from_disk
 from torch.utils.data import DataLoader
 
-from im2tex.data import PAD_ID, FormulaDataset, SizeBatchSampler, collate
+from im2tex.augment import draw_scales
+from im2tex.data import PAD_ID, FormulaDataset, SizeBatchSampler, collate, planned_sizes
 from im2tex.gpu import cap_memory
 from im2tex.model import Im2Tex, load_checkpoint, save_checkpoint
 from im2tex.tokenizer import BOS, EOS, brace_delta, load
 
 DATA = Path(os.environ.get("IM2TEX_DATA", Path.home() / "im2tex-data"))
-
-
-def planned_sizes(index, max_h, max_w):
-    """(N, 3): height and width after fitting, rounded up to multiples of 16, and token count."""
-    w, h = index[:, 2] - index[:, 0], index[:, 3] - index[:, 1]
-    s = np.minimum(np.minimum(max_h / h, max_w / w), 2.0)
-    ceil16 = lambda x: (np.ceil(np.maximum(np.round(x), 1) / 16) * 16).astype(np.int64)  # noqa: E731
-    return np.column_stack([ceil16(h * s), ceil16(w * s), index[:, 4]])
 
 
 def lr_at(step, args):
@@ -103,11 +96,13 @@ def main():
     shards = DATA / "shards"
     train_rows, val_rows = load_from_disk(str(shards / "train")), load_from_disk(str(shards / "val"))
     train_index, val_index = np.load(shards / "train" / "index.npy"), np.load(shards / "val" / "index.npy")
-    train_sizes = planned_sizes(train_index, args.max_h, args.max_w)
+    # One size per row for the whole run (same seed on resume), so the sampler can plan batches with it.
+    scales = draw_scales(train_rows["source"], np.random.default_rng(args.seed))
+    train_sizes = planned_sizes(train_index, args.max_h, args.max_w, scales)
     keep = np.flatnonzero(train_sizes[:, 2] <= args.max_tokens)
     if args.subset:
         keep = np.sort(np.random.default_rng(0).permutation(keep)[: args.subset])
-    train_set = FormulaDataset(train_rows, train_index, tok, args.max_h, args.max_w, train=True)
+    train_set = FormulaDataset(train_rows, train_index, tok, args.max_h, args.max_w, train=True, scales=scales)
     val_set = FormulaDataset(val_rows, val_index, tok, args.max_h, args.max_w, train=False)
     val_sizes = planned_sizes(val_index, args.max_h, args.max_w)
     val_keep = np.flatnonzero(val_sizes[:, 2] <= args.max_tokens)

@@ -1,7 +1,7 @@
 """Training-time image augmentation: make clean renders look like screenshots, scans and phone photos.
 
-Geometry and stroke changes happen at the source resolution; the result is resized to fit inside the size
-the batch sampler planned for (randomly smaller), so augmentation never breaks the batch memory budget;
+Each row's size is drawn before batches are planned (draw_scales), so the batch memory budget holds. Geometry,
+stroke and margin changes happen at the source resolution and the result is fitted inside the planned size;
 then resolution-level damage (binarization, contrast, blur, JPEG, noise) is added.
 """
 import io
@@ -9,9 +9,28 @@ import io
 import numpy as np
 from PIL import Image, ImageFilter
 
+# Median symbol height (connected ink components) of each source in training inputs at u = 1: the inference size
+# (fitted, enlarged up to 2x) shrunk by augment's margins, measured on 400 rows per source. Sources not listed are
+# handwritten.
+PRINTED_SYMBOL_PX = {"unimer": 15, "synthetic_printed": 21}
+HANDWRITTEN_SYMBOL_PX = 41
+
+
+def draw_scales(sources, rng: np.random.Generator) -> np.ndarray:
+    """Per training row, a factor on its inference size. 60%: 0.5 to 1.0, as always. 40%: log-uniform, so the
+    source's median symbol lands anywhere from 8 px (printed) or 12 px (handwritten) up to 60 px. Without that,
+    size alone tells printed from handwritten, and printed slides (30-36 px symbols) are bigger than any
+    printed training image."""
+    names, inverse = np.unique(np.asarray(sources), return_inverse=True)
+    printed = np.isin(names, list(PRINTED_SYMBOL_PX))[inverse]
+    px = np.array([PRINTED_SYMBOL_PX.get(s, HANDWRITTEN_SYMBOL_PX) for s in names], dtype=np.float64)[inverse]
+    lo, hi = np.where(printed, 8.0, 12.0) / px, 60.0 / px
+    wide = np.exp(rng.uniform(np.log(lo), np.log(hi)))
+    return np.where(rng.random(len(px)) < 0.4, wide, rng.uniform(0.5, 1.0, len(px)))
+
 
 def augment(img: Image.Image, size, rng: np.random.Generator) -> Image.Image:
-    """img: grayscale, cropped to its ink. size: (w, h) the sampler planned; the result fits inside it."""
+    """img: grayscale, cropped to its ink. size: (w, h) planned for it; the result fits inside it."""
     # Thicker strokes (the min filter spreads dark). Never thinner: training strokes are 3 px or less at the
     # source resolution, so a max filter would wipe out fraction bars and minus signs and leave the label wrong.
     if rng.random() < 0.1:
@@ -25,8 +44,7 @@ def augment(img: Image.Image, size, rng: np.random.Generator) -> Image.Image:
     pad = rng.integers(0, 12, size=4)  # margins, since real crops are rarely tight
     canvas = Image.new("L", (img.width + pad[0] + pad[2], img.height + pad[1] + pad[3]), 255)
     canvas.paste(img, (int(pad[0]), int(pad[1])))
-    u = rng.uniform(0.5, 1.0)  # often smaller than planned, so the model sees many text sizes
-    w, h = _fit_inside(canvas.size, (size[0] * u, size[1] * u))
+    w, h = _fit_inside(canvas.size, size)
     img = canvas.resize((w, h), Image.BILINEAR)
 
     a = np.asarray(img, dtype=np.float32)
