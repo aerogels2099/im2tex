@@ -12,8 +12,10 @@ from PIL import Image, ImageFilter
 
 def augment(img: Image.Image, size, rng: np.random.Generator) -> Image.Image:
     """img: grayscale, cropped to its ink. size: (w, h) the sampler planned; the result fits inside it."""
-    if rng.random() < 0.2:  # stroke width: thicker (min filter spreads dark) or thinner
-        img = img.filter(ImageFilter.MinFilter(3) if rng.random() < 0.5 else ImageFilter.MaxFilter(3))
+    # Thicker strokes (the min filter spreads dark). Never thinner: training strokes are 3 px or less at the
+    # source resolution, so a max filter would wipe out fraction bars and minus signs and leave the label wrong.
+    if rng.random() < 0.1:
+        img = img.filter(ImageFilter.MinFilter(3))
     if rng.random() < 0.3:  # slight rotation and shear, as in photos and scans; nothing leaves the frame
         img = img.rotate(rng.uniform(-2, 2), Image.BILINEAR, expand=True, fillcolor=255)
         sh = rng.uniform(-0.1, 0.1)
