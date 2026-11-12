@@ -21,7 +21,7 @@ def load_image(path) -> Image.Image:
     return im.convert("RGB")
 
 
-def load_predictor(run: str = "run2", device: str = "cuda", beams: int = 1, both_sizes: bool = True):
+def load_predictor(run: str = "run3", device: str = "cuda", beams: int = 1, both_sizes: bool = True):
     """-> predict(list of PIL images) -> list of LaTeX strings, using <data>/runs/<run>/best.pt.
 
     Images are enlarged up to 2x to fit, which suits renders like the training data but hurts real scans and
