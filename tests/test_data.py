@@ -4,7 +4,8 @@ import numpy as np
 import torch
 from PIL import Image
 
-from im2tex.augment import HANDWRITTEN_SYMBOL_PX, PRINTED_SYMBOL_PX, augment, draw_scales
+from im2tex.augment import (HANDWRITTEN_PHOTO_SYMBOL_PX, HANDWRITTEN_SYMBOL_PX, PRINTED_SYMBOL_PX, augment,
+                            draw_scales)
 from im2tex.data import FormulaDataset, SizeBatchSampler, collate, fit, ink_box, planned_sizes, preprocess
 from im2tex.tokenizer import train
 
@@ -60,6 +61,8 @@ def test_draw_scales_put_median_symbols_between_8_or_12_and_60_px():
     assert 12 - 1e-9 <= handwritten.min() and handwritten.max() <= 60 + 1e-9
     assert (printed > 30).mean() > 0.1 and (handwritten < 20).mean() > 0.1  # slide-sized print, small writing
     assert 0.65 < ((u >= 0.5) & (u <= 1.0)).mean() < 0.85  # mostly the old 0.5-1.0
+    photos = draw_scales(np.array(["hme100k"] * 20000), np.random.default_rng(1)) * HANDWRITTEN_PHOTO_SYMBOL_PX["hme100k"]
+    assert 12 - 1e-9 <= photos.min() and photos.max() <= 60 + 1e-9
 
 
 def test_training_images_fit_inside_the_sizes_their_batches_were_planned_with():
