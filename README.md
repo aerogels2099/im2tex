@@ -22,11 +22,12 @@ because reading from `/mnt/c` is several times slower.
 ## Data
 
 ```bash
-bash scripts/download_data.sh          # UniMER-1M + test, MathWriting, CROHME; HME100K is a manual download
+bash scripts/download_data.sh          # UniMER-1M + test, MathWriting, CROHME, HME100K
 python scripts/prepare_unimer.py       # each split -> refs.jsonl ({"id", "image", "ref", "norm"}) + images/
 python scripts/prepare_mathwriting.py  # render pen strokes to PNG
 python scripts/prepare_crohme.py       # invert to dark-on-white PNG
 python scripts/prepare_crohme2023.py   # test only: handwriting scanned from paper
+python scripts/prepare_hme100k.py      # train only: photos of handwritten school math
 python scripts/prepare_omnidocbench.py # test only: display equations cut from real slides, textbooks, papers
 python scripts/render_synthetic.py ~/im2tex-data/unimer/train/refs.jsonl --n 50000   # 9 math fonts
 python scripts/train_tokenizer.py <train refs.jsonl ...> --report <test refs.jsonl ...>
@@ -103,9 +104,9 @@ and each keeps its own license.
 | CROHME 2023 | CC BY-NC-SA 3.0 (non-commercial) | test |
 | OmniDocBench | research only, non-commercial | test |
 | im2latex-100k | see the dataset card (`yuntian-deng/im2latex-100k`) | test |
-| HME100K | the provider's terms (manual download) | training, if downloaded |
+| HME100K (unofficial Hugging Face copy) | TAL Education's terms, research only | training |
 | Handwritten notes pages (HumynLabs) | unclear: listed as CC BY 4.0, but the pages credit pkalika.in | test |
 
-**Model weights** trained here learn from MathWriting and CROHME, so share them for research and personal
-use only, under the same non-commercial terms, and list the datasets above alongside them.
+**Model weights** trained here learn from MathWriting, CROHME and HME100K, so share them for research and
+personal use only, under the same non-commercial terms, and list the datasets above alongside them.
 The comparison models in `baselines/` are downloaded at run time and keep their own licenses.

@@ -12,8 +12,9 @@
 #   OmniDocBench             research only, non-commercial (README "Copyright Statement"); downloaded by
 #                            scripts/prepare_omnidocbench.py  https://huggingface.co/datasets/opendatalab/OmniDocBench
 #                            (test only)
-# Manual download (terms on the provider's site):
-#   HME100K   https://ai.100tal.com/dataset  -> put the archive in $IM2TEX_DATA/hme100k/
+#   HME100K                  TAL Education's terms, research only  https://ai.100tal.com/dataset . Fetched from an
+#                            unofficial Hugging Face copy (ConstantHao/HME100K, the same 74,502 / 24,607 split);
+#                            the original terms still apply. Train split only: see scripts/prepare_hme100k.py.
 set -euo pipefail
 DATA=${IM2TEX_DATA:-$HOME/im2tex-data}
 
@@ -32,4 +33,11 @@ fetch https://storage.googleapis.com/mathwriting_data/mathwriting-2024.tgz "$DAT
 fetch https://raw.githubusercontent.com/Green-Wood/CoMER/master/data.zip "$DATA/crohme"
 fetch https://zenodo.org/records/8428035/files/CROHME23.zip "$DATA/crohme2023"
 echo "9eb899ddb0e87c80a17f489bf6162c33  $DATA/crohme2023/CROHME23.zip" | md5sum -c --quiet
+HME=https://huggingface.co/datasets/ConstantHao/HME100K/resolve/68ea96bd2527aac3799f94803a5f86b92fd9c2d2/data
+fetch "$HME/train-00000-of-00002.parquet" "$DATA/hme100k"
+fetch "$HME/train-00001-of-00002.parquet" "$DATA/hme100k"
+sha256sum -c --quiet <<EOF
+6a64bb7c70e7daaeafdd4397e540cd4a161ce10a2391125f877fbe11bd33af5f  $DATA/hme100k/train-00000-of-00002.parquet
+b870559bd247cf95bb1d149f88e96470aa873bbf6cfa1ee6c535fb2e8d776576  $DATA/hme100k/train-00001-of-00002.parquet
+EOF
 echo "done"
