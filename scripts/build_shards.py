@@ -26,6 +26,7 @@ SOURCES = {
     "mathwriting_synthetic": (DATA / "mathwriting/prepared/synthetic", 0.0),
     "mathwriting_symbols": (DATA / "mathwriting/prepared/symbols", 0.0),
     "crohme": (DATA / "crohme/train", 0.0),
+    "hme100k": (DATA / "hme100k/train", 0.0),  # none held out, so validation stays comparable with earlier runs
 }
 FEATURES = Features({"id": Value("string"), "source": Value("string"), "label": Value("string"),
                      "image": Value("binary"), "width": Value("int32"), "height": Value("int32")})

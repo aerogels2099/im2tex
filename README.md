@@ -36,7 +36,7 @@ python scripts/build_shards.py         # train/val -> Arrow shards (~6 GB, 14 fi
 
 | Split | Rows | Contents |
 |---|---|---|
-| train | 1,670,906 | UniMER-1M 981k, MathWriting 230k + 396k synthetic + 6k symbols, synthetic printed 49k, CROHME 9k |
+| train | 1,744,867 | UniMER-1M 981k, MathWriting 230k + 396k synthetic + 6k symbols, HME100K 74k, synthetic printed 49k, CROHME 9k |
 | val | 21,560 | MathWriting valid, 0.5% of UniMER and 2% of synthetic printed (held out by id hash) |
 | test | as prepared | UniMER-Test spe/cpe/sce/hwe, CROHME 2014/2016/2019/2023, MathWriting test, im2latex-100k, OmniDocBench slides+notes / textbooks / papers+exams |
 
