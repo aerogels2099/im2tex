@@ -62,6 +62,8 @@ at a lower learning rate (~3.5 h each); HME100K was added to the shards between 
 
 Resumable: rerunning the same `--run` continues from `runs/<run>/last.pt` (saved every 1000 steps).
 Logs go to `runs/<run>/log.jsonl`; `best.pt` is the checkpoint with the best validation exact match.
+On a Windows laptop, start long jobs through `powershell -ExecutionPolicy Bypass -File scripts\run_awake.ps1 <wsl script>`
+so Windows doesn't sleep partway through; the display still turns off as usual.
 
 ## Labeling your own images
 
