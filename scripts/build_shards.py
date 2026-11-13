@@ -10,6 +10,7 @@ import hashlib
 import itertools
 import json
 import os
+import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -69,9 +70,13 @@ if __name__ == "__main__":
 
     sizes = {s: sum(1 for _ in (d / "refs.jsonl").open()) for s, (d, _) in SOURCES.items()
              if (d / "refs.jsonl").exists()}
+    args.out.mkdir(parents=True, exist_ok=True)
     for split in ("val", "train"):
         jobs = [(split, s, i, i + CHUNK) for s, n in sizes.items() for i in range(0, n, CHUNK)]
-        ds = Dataset.from_generator(rows, features=FEATURES, gen_kwargs={"jobs": jobs},
-                                    num_proc=min(args.workers, len(jobs)))
-        ds.save_to_disk(str(args.out / split), max_shard_size="500MB")
-        print(f"{split}: {len(ds)} rows {dict(Counter(ds['source']))} -> {args.out / split}")
+        # from_generator writes the whole split to a cache first, which save_to_disk copies; left in ~/.cache, every
+        # build would keep a full copy.
+        with tempfile.TemporaryDirectory(dir=args.out) as cache:
+            ds = Dataset.from_generator(rows, features=FEATURES, gen_kwargs={"jobs": jobs},
+                                        num_proc=min(args.workers, len(jobs)), cache_dir=cache)
+            ds.save_to_disk(str(args.out / split), max_shard_size="500MB")
+            print(f"{split}: {len(ds)} rows {dict(Counter(ds['source']))} -> {args.out / split}")
