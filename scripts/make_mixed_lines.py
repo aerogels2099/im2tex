@@ -1,6 +1,7 @@
 """Synthetic handwritten lines that mix words and math, for the line recognizer: IAM text lines cut at the gaps
 between words, with handwritten formulas (MathWriting, HME100K, CROHME) glued in at the text's writing size.
-One row in ten is a formula alone, written as a line.
+One row in ten is a formula alone, written as a line. Half the glued formulas are short inline math with a letter
+(x, T, u_1, \\hat{x}, x = 5), as in notes ("the matrix $A$ is"). Bare numbers are left out: in a line they are text.
 
 Labels are page-format lines (im2tex/page.py) with a space inside each $ ... $, so a formula is tokenized as in
 formula mode: "the map $ f : V \\to W $ is linear". Writes <data>/mixed_lines/<split>/{refs.jsonl, images/}.
@@ -10,6 +11,7 @@ formula mode: "the map $ f : V \\to W $ is linear". Writes <data>/mixed_lines/<s
 import argparse
 import json
 import os
+import re
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -26,7 +28,14 @@ SPLITS = {"train": ("train", [("mathwriting/prepared/train", 0.6), ("hme100k/tra
           "val": ("validation", [("mathwriting/prepared/valid", 1.0)])}
 MAX_W = 2600  # px at IAM's 128 px line height; IAM's own lines are 1,800 wide at the median, 2,600 at p90
 MAX_FORMULA_TOKENS = 40  # inline math is short
-_lines = _formulas = _seed = None
+SHORT_TOKENS, SHORT_SHARE = 5, 0.5  # glued formulas this short, with a letter, drawn this often
+LETTER = re.compile(r"[A-Za-z]|\\(var)?(alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|pi|rho"
+                    r"|sigma|tau|upsilon|phi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega)")
+# Letters as tall as an x, and what may sit beside them on a formula's main line without changing its height.
+X_HEIGHT = set("aceimnorsuvwxz") | {"\\" + g for g in ("alpha", "epsilon", "varepsilon", "iota", "kappa", "nu", "omega",
+                                                       "pi", "sigma", "tau", "upsilon")}
+FLAT = {"=", "+", "-", ",", "\\hat", "\\tilde", "\\bar", "\\vec", "\\dot", "\\overline"}
+_lines = _formulas = _short = _seed = None
 
 
 def components(a):
@@ -55,6 +64,35 @@ def symbol_px(hwa):
     order = np.argsort(hwa[:, 0])
     c = np.cumsum(hwa[order, 2])
     return float(hwa[order[np.searchsorted(c, c[-1] / 2)], 0])
+
+
+def x_height(mask):
+    """The writing's x-height (symbol_px is the height of ascenders when joined-up words are single components).
+    The median of three measures of the ink in each row, which misjudge different writers: the band of rows holding
+    at least half the ink of the fullest row (too narrow under heavy letter tops), at least a third of it, and the
+    rows holding the middle 70% of the ink (too wide with big loops)."""
+    rows = mask.sum(1)
+    band = lambda frac: np.ptp(np.flatnonzero(rows >= frac * rows.max())) + 1  # noqa: E731
+    c = np.cumsum(rows) / rows.sum()
+    return float(np.median([band(1 / 2), band(1 / 3), np.searchsorted(c, 0.85) - np.searchsorted(c, 0.15) + 1]))
+
+
+def x_height_only(norm):
+    """Whether a formula's main line (outside sub- and superscripts) is letters as tall as an x, with nothing taller:
+    x, u = a, \\hat { c }, x _ { 1 }, but not T, f, 2 x or \\sqrt { x }."""
+    tokens, main, scripts, depth = norm.split(), [], [], 0  # scripts: brace depths where a sub/superscript opened
+    for prev, t in zip([None] + tokens, tokens):
+        if t == "{":
+            depth += 1
+            if prev in ("_", "^"):
+                scripts.append(depth)
+        elif t == "}":
+            if scripts and scripts[-1] == depth:
+                scripts.pop()
+            depth -= 1
+        elif not scripts and t not in ("_", "^"):
+            main.append(t)
+    return any(t in X_HEIGHT for t in main) and all(t in X_HEIGHT or t in FLAT for t in main)
 
 
 def word_cuts(mask, words):
@@ -93,15 +131,30 @@ def _cuttable(row):
     return (path, words, *found) if found else None
 
 
+def short(norm):
+    """Short inline math: a few tokens, one of them a Latin or Greek letter."""
+    tokens = norm.split()
+    return len(tokens) <= SHORT_TOKENS and any(LETTER.fullmatch(t) for t in tokens)
+
+
+def bare_number(norm):
+    """1 5, 2 . 5, 1 , 0 0 0: text in a line, not math."""
+    return re.fullmatch(r"[0-9.,]+", norm.replace(" ", "")) is not None
+
+
 def _init(lines, formulas, seed):
-    global _lines, _formulas, _seed
+    global _lines, _formulas, _short, _seed
     _lines, _formulas, _seed = lines, formulas, seed
+    _short = [([r for r in rows if short(r[1])], share) for rows, share in formulas]
+    _short = [(rows, share) for rows, share in _short if rows]
 
 
-def _formula(rng):
-    """-> (grayscale array cropped to its ink with the paper made white, normalized LaTeX)."""
-    shares = np.array([s for _, s in _formulas])
-    rows = _formulas[rng.choice(len(_formulas), p=shares / shares.sum())][0]
+def _formula(rng, short_math=False):
+    """-> (grayscale array cropped to its ink with the paper made white, normalized LaTeX). short_math: draw from
+    the short inline math."""
+    pools = _short if short_math else _formulas
+    shares = np.array([s for _, s in pools])
+    rows = pools[rng.choice(len(pools), p=shares / shares.sum())][0]
     path, norm = rows[rng.integers(len(rows))]
     img = Image.open(path).convert("L")
     a = np.asarray(img.crop(ink_box(img)))
@@ -121,15 +174,15 @@ def glue(rng, line):
     path, words, cuts, gaps = line
     a = np.asarray(Image.open(path).convert("L"))
     mask, hwa = components(a)
-    text_px, center = symbol_px(hwa), np.median(np.nonzero(mask)[0])
+    text_px, x_px, center = symbol_px(hwa), x_height(mask), np.median(np.nonzero(mask)[0])
     a = whiten(a, mask)
     xs = np.flatnonzero(mask.any(0))
     bounds = [xs[0], *cuts, xs[-1] + 1]  # word j spans bounds[j]:bounds[j + 1]
     ratio = rng.uniform(0.8, 1.2)  # formula symbols against the text's ink components
     formulas = []
     while len(formulas) < (1 if rng.random() < 0.75 else 2):
-        f, norm = _formula(rng)
-        s = text_px * ratio / _formula_px(f)
+        f, norm = _formula(rng, rng.random() < SHORT_SHARE)
+        s = (x_px if x_height_only(norm) else text_px) * ratio / _formula_px(f)
         size = max(1, round(f.shape[1] * s)), max(1, round(f.shape[0] * s))
         # Outside 1/3 to 3x the symbols were likely mismeasured (a faint photo breaks into specks): draw another.
         if 1 / 3 <= s <= 3 and size[0] <= 0.6 * MAX_W:
@@ -190,7 +243,7 @@ def _write(job):
 
 def load_sources(split, workers):
     """-> (cuttable IAM lines, [(formulas, share)]) for a split. IAM lines with a crossed-out word are left out:
-    the label drops the word but the image still shows it, so the gaps no longer match."""
+    the label drops the word but the image still shows it, so the gaps no longer match. So are bare numbers."""
     iam_split, sources = SPLITS[split]
     raw = pq.read_table(DATA / "iam" / f"{iam_split}.parquet", columns=["text"]).column("text").to_pylist()
     struck = {f"{iam_split}-{i:05d}" for i, t in enumerate(raw) if "#" in t}
@@ -203,7 +256,8 @@ def load_sources(split, workers):
     for rel, share in sources:
         refs = map(json.loads, open(DATA / rel / "refs.jsonl", encoding="utf-8"))
         formulas.append(([(str(DATA / rel / r["image"]), r["norm"]) for r in refs
-                          if r["norm"] and len(r["norm"].split()) <= MAX_FORMULA_TOKENS], share))
+                          if r["norm"] and len(r["norm"].split()) <= MAX_FORMULA_TOKENS
+                          and not bare_number(r["norm"])], share))
     print(f"{split}: {len(lines)} of {len(rows)} IAM lines cut at word gaps; formulas "
           + ", ".join(f"{rel} {len(f)}" for (f, _), (rel, _) in zip(formulas, sources)))
     return lines, formulas

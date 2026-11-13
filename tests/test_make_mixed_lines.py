@@ -67,3 +67,31 @@ def test_glue_puts_formulas_among_a_run_of_the_lines_words(tmp_path):
         text = " ".join(c for k, c in parts if k == "text").split()
         assert text and any(words[i: i + len(text)] == text for i in range(len(words)))  # a run of its words
         assert img.dtype == np.uint8 and img.shape[0] >= a.shape[0]
+
+
+def test_short_inline_math_has_a_letter_and_bare_numbers_are_text():
+    assert all(m.short(f) for f in ["x", "T", "u _ { 1 }", r"\hat { \xi }", "x = 5", r"\varphi"])
+    assert not any(m.short(f) for f in ["2 0 1 5", r"\sqrt { 2 }", "+", r"\frac { a } { b } + c"])
+    assert all(m.bare_number(f) for f in ["2 0 1 5", "2 . 5", "1 , 0 0 0"])
+    assert not any(m.bare_number(f) for f in ["- 5", "x", r"1 0 \%"])
+
+
+def test_short_math_is_drawn_from_the_short_formulas_only(tmp_path):
+    f = np.full((40, 40), 255, np.uint8)
+    f[10:30, 10:30] = 0
+    Image.fromarray(f).save(tmp_path / "f.png")
+    m._init([], [([(str(tmp_path / "f.png"), r"\frac { a } { b } + c"), (str(tmp_path / "f.png"), "x")], 1.0)], 0)
+    rng = np.random.default_rng(0)
+    assert {m._formula(rng, short_math=True)[1] for _ in range(20)} == {"x"}
+    assert {m._formula(rng)[1] for _ in range(50)} == {"x", r"\frac { a } { b } + c"}
+
+
+def test_x_height_is_the_band_of_rows_most_ink_lies_in():
+    a, _ = _line(["the", "map"])  # letters 30 px tall
+    a[20:50, 12:15] = 20  # an ascender on the first letter, a thin stroke above the band
+    assert m.x_height(m.components(a)[0]) == 30
+
+
+def test_x_height_only_looks_at_the_main_line():
+    assert all(m.x_height_only(f) for f in ["x", "u = a", r"\hat { c }", "x _ { 1 }", r"\omega ^ { 2 }"])
+    assert not any(m.x_height_only(f) for f in ["T", "f", "2 x", r"\sqrt { x }", "x _ { 1 } y", "+"])
