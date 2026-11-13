@@ -14,13 +14,14 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from datasets import load_from_disk
+from rapidfuzz.distance import Levenshtein
 from torch.utils.data import DataLoader
 
 from im2tex.augment import draw_scales
-from im2tex.data import PAD_ID, FormulaDataset, SizeBatchSampler, collate, planned_sizes
+from im2tex.data import LINE_SOURCES, PAD_ID, FormulaDataset, SizeBatchSampler, collate, planned_sizes
 from im2tex.gpu import cap_memory
 from im2tex.model import Im2Tex, load_checkpoint, save_checkpoint
-from im2tex.tokenizer import BOS, EOS, brace_delta, load
+from im2tex.tokenizer import BOS, EOS, LINE, brace_delta, load
 
 DATA = Path(os.environ.get("IM2TEX_DATA", Path.home() / "im2tex-data"))
 
@@ -33,26 +34,29 @@ def lr_at(step, args):
 
 
 @torch.no_grad()
-def validate(model, batches, dataset, tok, delta):
-    """Teacher-forced loss and greedy exact match on a fixed validation subset."""
+def validate(model, batches, dataset, tok, delta, start):
+    """-> teacher-forced loss per token, greedy readings from `start` (<bos> or <line>), and their references."""
     model.eval()
-    loss_sum = tokens_sum = exact = total = 0
+    loss_sum = tokens_sum = 0
+    preds, refs = [], []
     for batch in batches:
         images, tokens = collate([dataset[i] for i in batch])
         images, tokens = images.cuda(), tokens.cuda()
         with torch.autocast("cuda", dtype=torch.bfloat16):
             logits = model(images, tokens[:, :-1])
-            out = model.generate(images, tok.token_to_id(BOS), tok.token_to_id(EOS),
-                                 max_len=tokens.shape[1] + 32, brace_delta=delta)
-        n = (tokens[:, 1:] != PAD_ID).sum().item()
+            out = model.generate(images, start, tok.token_to_id(EOS), max_len=tokens.shape[1] + 32, brace_delta=delta)
         loss_sum += F.cross_entropy(logits.float().transpose(1, 2), tokens[:, 1:], ignore_index=PAD_ID,
                                     reduction="sum").item()
-        tokens_sum += n
-        preds, refs = tok.decode_batch(out.tolist()), tok.decode_batch(tokens.tolist())
-        exact += sum(p == r for p, r in zip(preds, refs))
-        total += len(batch)
+        tokens_sum += (tokens[:, 1:] != PAD_ID).sum().item()
+        preds += tok.decode_batch(out.tolist())
+        refs += tok.decode_batch(tokens.tolist())
     model.train()
-    return {"val_loss": loss_sum / tokens_sum, "val_exact": exact / total}
+    return loss_sum / tokens_sum, preds, refs
+
+
+def cer(preds, refs):
+    """Character error rate: edits over reference characters, over the whole set."""
+    return sum(Levenshtein.distance(p, r) for p, r in zip(preds, refs)) / max(sum(len(r) for r in refs), 1)
 
 
 def main():
@@ -64,6 +68,8 @@ def main():
     ap.add_argument("--warmup", type=int, default=2000)
     ap.add_argument("--weight-decay", type=float, default=0.05)
     ap.add_argument("--subset", type=int, help="train on a fixed random subset of this many rows")
+    ap.add_argument("--repeat", nargs="*", default=[], metavar="SOURCE=K",
+                    help="show each row of SOURCE K times per pass over the data, e.g. iam=30")
     ap.add_argument("--max-h", type=int, default=256)
     ap.add_argument("--max-w", type=int, default=1024)
     ap.add_argument("--max-tokens", type=int, default=512, help="longest label (decoder positions)")
@@ -74,6 +80,7 @@ def main():
     ap.add_argument("--layers", type=int, default=6)
     ap.add_argument("--encoder", default="convnext_tiny")
     ap.add_argument("--val-size", type=int, default=1000)
+    ap.add_argument("--val-lines", type=int, default=1000, help="validation rows from the line sources")
     ap.add_argument("--val-every", type=int, default=2000)
     ap.add_argument("--ckpt-every", type=int, default=1000)
     ap.add_argument("--log-every", type=int, default=50)
@@ -97,19 +104,30 @@ def main():
     train_rows, val_rows = load_from_disk(str(shards / "train")), load_from_disk(str(shards / "val"))
     train_index, val_index = np.load(shards / "train" / "index.npy"), np.load(shards / "val" / "index.npy")
     # One size per row for the whole run (same seed on resume), so the sampler can plan batches with it.
-    scales = draw_scales(train_rows["source"], np.random.default_rng(args.seed))
+    train_sources = np.asarray(train_rows["source"])
+    scales = draw_scales(train_sources, np.random.default_rng(args.seed))
     train_sizes = planned_sizes(train_index, args.max_h, args.max_w, scales)
     keep = np.flatnonzero(train_sizes[:, 2] <= args.max_tokens)
     if args.subset:
         keep = np.sort(np.random.default_rng(0).permutation(keep)[: args.subset])
+    for source, k in (r.split("=") for r in args.repeat):
+        keep = np.concatenate([keep, *[keep[train_sources[keep] == source]] * (int(k) - 1)])
     train_set = FormulaDataset(train_rows, train_index, tok, args.max_h, args.max_w, train=True, scales=scales)
     val_set = FormulaDataset(val_rows, val_index, tok, args.max_h, args.max_w, train=False)
     val_sizes = planned_sizes(val_index, args.max_h, args.max_w)
-    val_keep = np.flatnonzero(val_sizes[:, 2] <= args.max_tokens)
-    val_pick = np.random.default_rng(0).choice(val_keep, min(args.val_size, len(val_keep)), replace=False)
+    # Formulas and lines are validated apart, so val_exact stays comparable with runs that had no lines.
+    val_sources = np.asarray(val_rows["source"])
+    is_line, fits = np.isin(val_sources, list(LINE_SOURCES)), val_sizes[:, 2] <= args.max_tokens
+
+    def pick(rows, n):
+        return np.random.default_rng(0).choice(rows, min(n, len(rows)), replace=False)
+
+    val_pick = pick(np.flatnonzero(fits & ~is_line), args.val_size)
+    line_pick = pick(np.flatnonzero(fits & is_line), args.val_lines)
     budget = dict(max_pixels=args.max_pixels, max_tokens=args.max_batch_tokens, max_batch=args.max_batch)
     val_batches = list(SizeBatchSampler(val_sizes, val_pick, **budget).batches(np.sort(val_pick)))
-    print(f"train rows {len(keep)} (of {len(train_rows)}), val subset {len(val_pick)}")
+    line_batches = list(SizeBatchSampler(val_sizes, line_pick, **budget).batches(np.sort(line_pick)))
+    print(f"train rows {len(keep)} (of {len(train_rows)}), val {len(val_pick)} formulas + {len(line_pick)} lines")
 
     if (run / "last.pt").exists():
         model, ckpt = load_checkpoint(run / "last.pt")
@@ -118,6 +136,9 @@ def main():
         print(f"resuming {run.name} at step {step}")
     elif args.init:
         model, _ = load_checkpoint(args.init)
+        if model.config["vocab_size"] < tok.get_vocab_size():  # tokens added since, e.g. <line>
+            print(f"vocabulary {model.config['vocab_size']} -> {tok.get_vocab_size()}, new tokens start as <bos>")
+            model.grow_vocab(tok.get_vocab_size(), tok.token_to_id(BOS))
         model.train()
         ckpt, step = None, 0
         print(f"starting from the weights in {args.init}")
@@ -168,10 +189,19 @@ def main():
                       "tok_per_s": round(tokens_seen / dt), "batch": len(images),
                       "peak_gb": round(torch.cuda.max_memory_allocated() / 2**30, 2)}
         if step % args.val_every == 0 or step == args.steps:
-            entry |= validate(model, val_batches, val_set, tok, delta)
-            if entry["val_exact"] > best or not (run / "best.pt").exists():
-                best = entry["val_exact"]
-                save_checkpoint(model, run / "best.pt", step=step, val_exact=best)
+            loss, preds, refs = validate(model, val_batches, val_set, tok, delta, tok.token_to_id(BOS))
+            entry |= {"val_loss": loss, "val_exact": float(np.mean([p == r for p, r in zip(preds, refs)]))}
+            score = entry["val_exact"]
+            if line_batches:
+                loss, preds, refs = validate(model, line_batches, val_set, tok, delta, tok.token_to_id(LINE))
+                sources = val_sources[np.concatenate(line_batches)]
+                entry |= {"val_line_loss": loss, "val_cer": cer(preds, refs)}
+                for s in np.unique(sources):
+                    entry[f"val_cer_{s}"] = cer(*zip(*[(p, r) for p, r, x in zip(preds, refs, sources) if x == s]))
+                score -= entry["val_cer"]  # formulas right and lines read well
+            if score > best or not (run / "best.pt").exists():
+                best = score
+                save_checkpoint(model, run / "best.pt", step=step, val_exact=entry["val_exact"], score=score)
         if step % args.ckpt_every == 0 or step == args.steps:
             save_checkpoint(model, run / "last.pt", step=step, opt=opt.state_dict(), best=best)
         if entry:

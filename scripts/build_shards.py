@@ -27,6 +27,11 @@ SOURCES = {
     "mathwriting_symbols": (DATA / "mathwriting/prepared/symbols", 0.0),
     "crohme": (DATA / "crohme/train", 0.0),
     "hme100k": (DATA / "hme100k/train", 0.0),  # none held out, so validation stays comparable with earlier runs
+    # Lines of words and math, read from <line> (im2tex/data.py). Last, so the formula rows keep their places.
+    "iam": (DATA / "iam/train", 0.0),
+    "iam_valid": (DATA / "iam/validation", None),
+    "mixed_lines": (DATA / "mixed_lines/train", 0.0),
+    "mixed_lines_valid": (DATA / "mixed_lines/val", None),
 }
 FEATURES = Features({"id": Value("string"), "source": Value("string"), "label": Value("string"),
                      "image": Value("binary"), "width": Value("int32"), "height": Value("int32")})
