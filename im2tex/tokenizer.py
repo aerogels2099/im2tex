@@ -1,13 +1,16 @@
 """Model tokenizer: one token per normalized LaTeX token (\\frac, {, x), BPE pieces only for rare ones.
 
 Normalized formulas are single-space separated, so splitting on whitespace and decoding with spaces
-round-trips them (up to the spacing around \\ , which renders the same).
+round-trips them (up to the spacing around \\ , which renders the same). English text encodes too, as pieces.
 """
 import itertools
 
 from tokenizers import Tokenizer, decoders, models, pre_tokenizers, processors, trainers
 
 PAD, BOS, EOS, UNK = "<pad>", "<bos>", "<eos>", "<unk>"
+# Start token for a line of words and math (im2tex/page.py format) instead of a formula. It comes last, after
+# the trained vocabulary, so models trained before it existed keep their token ids.
+LINE = "<line>"
 ASCII = [chr(c) for c in range(33, 127)]
 
 
@@ -22,6 +25,7 @@ def train(formulas, vocab_size: int = 4000) -> Tokenizer:
     tok.train_from_iterator(itertools.chain(formulas, [" ".join(ASCII)]), trainer)
     tok.post_processor = processors.TemplateProcessing(
         single=f"{BOS} $A {EOS}", special_tokens=[(BOS, tok.token_to_id(BOS)), (EOS, tok.token_to_id(EOS))])
+    tok.add_special_tokens([LINE])
     return tok
 
 

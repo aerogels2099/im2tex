@@ -8,7 +8,7 @@ from PIL import Image, ImageOps
 
 from im2tex.data import collate, preprocess
 from im2tex.model import load_checkpoint
-from im2tex.tokenizer import BOS, EOS, brace_delta, load
+from im2tex.tokenizer import BOS, EOS, LINE, brace_delta, load
 
 DATA = Path(os.environ.get("IM2TEX_DATA", Path.home() / "im2tex-data"))
 
@@ -21,8 +21,10 @@ def load_image(path) -> Image.Image:
     return im.convert("RGB")
 
 
-def load_predictor(run: str = "run3", device: str = "cuda", beams: int = 1, both_sizes: bool = True):
-    """-> predict(list of PIL images) -> list of LaTeX strings, using <data>/runs/<run>/best.pt.
+def load_predictor(run: str = "run3", device: str = "cuda", beams: int = 1, both_sizes: bool = True,
+                   lines: bool = False):
+    """-> predict(list of PIL images) -> list of LaTeX strings, using <data>/runs/<run>/best.pt. With lines, each
+    image is read as a line of words and math (im2tex/page.py format) instead of one formula.
 
     Images are enlarged up to 2x to fit, which suits renders like the training data but hurts real scans and
     documents. With both_sizes, an image that gets enlarged is also read at its own size, and where the two
@@ -35,7 +37,11 @@ def load_predictor(run: str = "run3", device: str = "cuda", beams: int = 1, both
     args = json.loads((run_dir / "args.json").read_text())
     model, _ = load_checkpoint(run_dir / "best.pt", device)
     tok = load(DATA / "tokenizer.json")
-    delta = torch.tensor(brace_delta(tok), device=device)
+    vocab = model.config["vocab_size"]  # the tokenizer may have gained tokens since this run was trained
+    delta = torch.tensor(brace_delta(tok)[:vocab], device=device)
+    start = tok.token_to_id(LINE if lines else BOS)
+    if start >= vocab:
+        raise ValueError(f"{run} was trained before line reading existed")
     autocast = dict(device_type=device, dtype=torch.bfloat16, enabled=device == "cuda")
 
     def batch(xs):
@@ -45,13 +51,13 @@ def load_predictor(run: str = "run3", device: str = "cuda", beams: int = 1, both
         """-> LaTeX strings and their token counts (without <bos> and <eos>)."""
         eos = tok.token_to_id(EOS)
         with torch.autocast(**autocast):
-            out = model.generate(batch(xs), tok.token_to_id(BOS), eos, max_len=max_len, brace_delta=delta,
-                                 beams=beams)
+            out = model.generate(batch(xs), start, eos, max_len=max_len, brace_delta=delta, beams=beams)
         return tok.decode_batch(out.tolist()), (out[:, 1:] != eos).sum(1).tolist()
 
     @torch.no_grad()
     def mean_logp(x, latex):
         ids = torch.tensor([tok.encode(latex).ids[: model.config["max_tokens"]]], device=device)  # <bos> ... <eos>
+        ids[0, 0] = start
         with torch.autocast(**autocast):
             logits = model(batch([x]), ids[:, :-1])
         return logits.float().log_softmax(-1).gather(-1, ids[:, 1:, None]).mean().item()

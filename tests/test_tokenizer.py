@@ -1,5 +1,5 @@
 from im2tex.normalize import normalize
-from im2tex.tokenizer import BOS, EOS, train
+from im2tex.tokenizer import BOS, EOS, LINE, train
 
 CORPUS = [normalize(f) for f in [
     r"\frac{a}{b} + x^2_i", r"\sum_{i=1}^n x_i", r"\text{for all } x \in \mathbb{R}",
@@ -22,3 +22,10 @@ def test_frequent_tokens_are_atomic_and_unknown_words_still_encode():
     unseen = r"\text {quantum} \frac { z } { q } \Xi"  # characters and words never seen in training
     assert normalize(tok.decode(tok.encode(unseen).ids)) == unseen
     assert tok.token_to_id("<unk>") not in tok.encode(unseen).ids
+
+
+def test_line_token_comes_after_the_trained_vocabulary_and_text_round_trips():
+    tok = train(CORPUS, vocab_size=300)
+    assert tok.token_to_id(LINE) == tok.get_vocab_size() - 1 == tok.get_vocab_size(with_added_tokens=False)
+    line = "Every matrix $ A = A ^ { T } $ is symmetric, isn't it?"
+    assert tok.decode(tok.encode(line).ids) == line

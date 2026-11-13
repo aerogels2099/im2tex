@@ -46,7 +46,7 @@ def test_both_sizes_keeps_the_surer_reading_stops_loops_and_reads_unenlarged_ima
     enlarged, native = (tok.decode(tok.encode(s).ids) for s in (r"x ^ { 2 }", r"\frac { a } { b }"))
 
     class Model:  # reads x^2 from wide (enlarged) inputs and \frac{a}{b} (or x x x ... if it loops) from narrow ones
-        config = {"max_tokens": 12}
+        config = {"max_tokens": 12, "vocab_size": tok.get_vocab_size()}
 
         def __init__(self, sure_of, loops):
             self.sure_of, self.loops, self.reads, self.max_len = sure_of, loops, 0, None

@@ -33,6 +33,17 @@ class Im2Tex(nn.Module):
         for emb in (self.tok_emb, self.pos_emb, self.row_emb, self.col_emb):
             nn.init.normal_(emb.weight, std=0.02)
 
+    def grow_vocab(self, vocab_size: int, init_from: int):
+        """Add tokens up to vocab_size, each starting as a copy of token init_from (a new start token from
+        <bos>), so a trained model can learn them without starting over."""
+        old = self.tok_emb.weight.data
+        self.tok_emb = nn.Embedding(vocab_size, old.shape[1]).to(old.device, old.dtype)
+        self.tok_emb.weight.data[: len(old)] = old
+        self.tok_emb.weight.data[len(old):] = old[init_from]
+        self.head = nn.Linear(old.shape[1], vocab_size, bias=False).to(old.device, old.dtype)
+        self.head.weight = self.tok_emb.weight
+        self.config["vocab_size"] = vocab_size
+
     def encode(self, images: torch.Tensor) -> torch.Tensor:
         """images: (B, 1, H, W) with H, W multiples of 16 -> memory (B, H/16 * W/16, d_model)."""
         f = self.encoder(images)[-1]

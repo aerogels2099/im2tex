@@ -11,10 +11,13 @@ import torch
 from PIL import Image
 
 from im2tex.augment import augment
+from im2tex.tokenizer import LINE
 
 INK = 200  # pixels darker than this count as ink when cropping
 MARGIN = 4  # pixels kept around the ink
 PAD_ID = 0  # tokenizer's <pad>
+# Sources whose rows are lines of words and math, read from <line> instead of <bos>.
+LINE_SOURCES = frozenset({"iam", "iam_valid", "mixed_lines", "mixed_lines_valid"})
 
 
 def ink_box(img: Image.Image):
@@ -83,7 +86,10 @@ class FormulaDataset(torch.utils.data.Dataset):
             img = augment(img, (max(1, round(img.width * s)), max(1, round(img.height * s))), np.random.default_rng())
         else:
             img = img.resize(fit(*img.size, self.max_h, self.max_w), Image.BILINEAR)
-        return to_tensor(img), torch.tensor(self.tokenizer.encode(r["label"]).ids)
+        ids = self.tokenizer.encode(r["label"]).ids
+        if r.get("source") in LINE_SOURCES:
+            ids[0] = self.tokenizer.token_to_id(LINE)
+        return to_tensor(img), torch.tensor(ids)
 
 
 def collate(batch):

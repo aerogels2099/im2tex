@@ -96,3 +96,17 @@ def test_brace_delta_counts_braces_but_not_escaped_ones():
     assert d[tok.token_to_id("{</w>")] == 1 and d[tok.token_to_id("}</w>")] == -1
     for s, balance in [(r"\frac { a } { b }", 0), (r"\{ x \}", 0), (r"\text {if }", 0), (r"\text {if", 1)]:
         assert sum(d[i] for i in tok.encode(s).ids) == balance, s
+
+
+def test_grow_vocab_keeps_old_outputs_and_starts_new_tokens_as_a_copy():
+    model = _tiny()
+    x, t = torch.rand(1, 1, 32, 64), torch.randint(0, 20, (1, 5))
+    before = model(x, t)
+    model.grow_vocab(21, init_from=1)
+    after = model(x, t)
+    assert after.shape[-1] == 21 and model.config["vocab_size"] == 21
+    assert torch.allclose(before, after[..., :20]) and torch.allclose(after[..., 20], after[..., 1])
+    t2 = t.clone()
+    t2[0, 0] = 20  # starting from the copy reads the same as starting from token 1
+    t[0, 0] = 1
+    assert torch.allclose(model(x, t2), model(x, t)) and model.head.weight is model.tok_emb.weight

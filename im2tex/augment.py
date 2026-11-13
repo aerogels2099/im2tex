@@ -15,9 +15,11 @@ from PIL import Image, ImageFilter
 # handwritten.
 PRINTED_SYMBOL_PX = {"unimer": 15, "synthetic_printed": 21}
 HANDWRITTEN_SYMBOL_PX = 41
-# HME100K's photos are smaller: about 35 px at the inference size (threshold halfway between ink and paper, as
-# the pencil is faint), about 30 px after the margins.
-HANDWRITTEN_PHOTO_SYMBOL_PX = {"hme100k": 30}
+# Handwritten sources that come out smaller. HME100K's photos: about 35 px at the inference size (threshold halfway
+# between ink and paper, as the pencil is faint), about 30 px after the margins. IAM's text lines and the mixed
+# lines made from them are long, so fitting them 1024 px wide shrinks them: 27.5 and 33.5 px at the inference
+# size (the margins barely matter on a wide line).
+SMALLER_HANDWRITTEN_SYMBOL_PX = {"hme100k": 30, "iam": 27, "mixed_lines": 32}
 
 
 def draw_scales(sources, rng: np.random.Generator) -> np.ndarray:
@@ -27,7 +29,7 @@ def draw_scales(sources, rng: np.random.Generator) -> np.ndarray:
     printed training image."""
     names, inverse = np.unique(np.asarray(sources), return_inverse=True)
     printed = np.isin(names, list(PRINTED_SYMBOL_PX))[inverse]
-    px = np.array([PRINTED_SYMBOL_PX.get(s, HANDWRITTEN_PHOTO_SYMBOL_PX.get(s, HANDWRITTEN_SYMBOL_PX))
+    px = np.array([PRINTED_SYMBOL_PX.get(s, SMALLER_HANDWRITTEN_SYMBOL_PX.get(s, HANDWRITTEN_SYMBOL_PX))
                    for s in names], dtype=np.float64)[inverse]
     lo, hi = np.where(printed, 8.0, 12.0) / px, 60.0 / px
     wide = np.exp(rng.uniform(np.log(lo), np.log(hi)))

@@ -4,10 +4,10 @@ import numpy as np
 import torch
 from PIL import Image
 
-from im2tex.augment import (HANDWRITTEN_PHOTO_SYMBOL_PX, HANDWRITTEN_SYMBOL_PX, PRINTED_SYMBOL_PX, augment,
+from im2tex.augment import (HANDWRITTEN_SYMBOL_PX, PRINTED_SYMBOL_PX, SMALLER_HANDWRITTEN_SYMBOL_PX, augment,
                             draw_scales)
 from im2tex.data import FormulaDataset, SizeBatchSampler, collate, fit, ink_box, planned_sizes, preprocess
-from im2tex.tokenizer import train
+from im2tex.tokenizer import BOS, LINE, train
 
 
 def _formula(w=200, h=60):
@@ -61,8 +61,9 @@ def test_draw_scales_put_median_symbols_between_8_or_12_and_60_px():
     assert 12 - 1e-9 <= handwritten.min() and handwritten.max() <= 60 + 1e-9
     assert (printed > 30).mean() > 0.1 and (handwritten < 20).mean() > 0.1  # slide-sized print, small writing
     assert 0.65 < ((u >= 0.5) & (u <= 1.0)).mean() < 0.85  # mostly the old 0.5-1.0
-    photos = draw_scales(np.array(["hme100k"] * 20000), np.random.default_rng(1)) * HANDWRITTEN_PHOTO_SYMBOL_PX["hme100k"]
-    assert 12 - 1e-9 <= photos.min() and photos.max() <= 60 + 1e-9
+    for source in ("hme100k", "iam", "mixed_lines"):  # photos and long lines come out smaller
+        px = draw_scales(np.array([source] * 20000), np.random.default_rng(1)) * SMALLER_HANDWRITTEN_SYMBOL_PX[source]
+        assert 12 - 1e-9 <= px.min() and px.max() <= 60 + 1e-9
 
 
 def test_training_images_fit_inside_the_sizes_their_batches_were_planned_with():
@@ -86,6 +87,18 @@ def test_training_images_fit_inside_the_sizes_their_batches_were_planned_with():
             for _ in range(5):  # augmentation is random
                 x = data[i][0]
                 assert x.shape[1] <= planned[i, 0] and x.shape[2] <= planned[i, 1]
+
+
+def test_lines_start_with_the_line_token_and_formulas_with_bos():
+    tok = train([r"x ^ { 2 }", r"\frac { a } { b }"] * 5, vocab_size=120)
+    buf = io.BytesIO()
+    _formula().save(buf, format="PNG")
+    rows = [{"image": buf.getvalue(), "label": "x ^ { 2 }", "source": "mathwriting"},
+            {"image": buf.getvalue(), "label": "if $ x ^ { 2 } $ then", "source": "mixed_lines"}]
+    data = FormulaDataset(rows, np.array([[*ink_box(_formula()), 5]] * 2), tok, 256, 1024, train=False)
+    formula, line = data[0][1], data[1][1]
+    assert formula[0] == tok.token_to_id(BOS) and line[0] == tok.token_to_id(LINE)
+    assert tok.decode(line.tolist()) == "if $ x ^ { 2 } $ then"
 
 
 def test_collate_pads_to_multiples_of_16():
