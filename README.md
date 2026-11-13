@@ -42,11 +42,11 @@ python scripts/build_shards.py         # train/val -> Arrow shards (~11 GB, 24 f
 
 | Split | Rows | Contents |
 |---|---|---|
-| train | 1,901,348 | formulas: UniMER-1M 981k, MathWriting 230k + 396k synthetic + 6k symbols, HME100K 74k, synthetic printed 49k, CROHME 9k; lines: mixed 150k, IAM 6k |
-| val | 23,536 | formulas: MathWriting valid, 0.5% of UniMER and 2% of synthetic printed (held out by id hash); lines: IAM validation, 1k mixed |
+| train | 1,906,519 | formulas: UniMER-1M 981k, MathWriting 230k + 396k synthetic + 6k symbols, HME100K 74k, synthetic printed 49k, CROHME 9k; lines: mixed 150k, IAM 6k, GNHK 5k |
+| val | 24,195 | formulas: MathWriting valid, 0.5% of UniMER and 2% of synthetic printed (held out by id hash); lines: IAM validation, 1k mixed, GNHK (10% of its training pages) |
 | test | as prepared | UniMER-Test spe/cpe/sce/hwe, CROHME 2014/2016/2019/2023, MathWriting test, im2latex-100k, OmniDocBench slides+notes / textbooks / papers+exams; IAM and GNHK test lines |
 
-Lines (IAM's and the mixed ones) are labeled as text with `$...$` math and read from a `<line>` start token
+Lines (IAM's, GNHK's and the mixed ones) are labeled as text with `$...$` math and read from a `<line>` start token
 instead of `<bos>`, so the same model reads a formula crop or a line of handwritten notes.
 
 Labels from every dataset go through `im2tex/normalize.py`, which rewrites LaTeX into one canonical
