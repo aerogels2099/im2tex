@@ -31,6 +31,8 @@ python scripts/prepare_hme100k.py      # train only: photos of handwritten schoo
 python scripts/prepare_iam.py          # handwritten English text lines, labels written back as written
 python scripts/prepare_omnidocbench.py # test only: display equations cut from real slides, textbooks, papers
 python scripts/render_synthetic.py ~/im2tex-data/unimer/train/refs.jsonl --n 50000   # 9 math fonts
+python scripts/make_mixed_lines.py --split train --n 150000   # IAM lines cut at word gaps, formulas glued in
+python scripts/make_mixed_lines.py --split val --n 1000
 python scripts/train_tokenizer.py <train refs.jsonl ...> --report <test refs.jsonl ...>
 python scripts/build_shards.py         # train/val -> Arrow shards (~6 GB, 14 files)
 ```

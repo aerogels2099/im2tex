@@ -9,5 +9,6 @@ pillow
 numpy
 sacrebleu
 rapidfuzz
+scipy
 pytest
 tqdm

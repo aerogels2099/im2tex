@@ -67,6 +67,7 @@ regex==2026.11.7
 rich==15.0.0
 sacrebleu==2.6.0
 safetensors==0.8.0
+scipy==1.18.1
 sentencepiece==0.2.3
 setuptools==78.1.0
 shellingham==1.5.4
