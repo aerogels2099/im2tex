@@ -18,8 +18,9 @@ HANDWRITTEN_SYMBOL_PX = 41
 # Handwritten sources that come out smaller. HME100K's photos: about 35 px at the inference size (threshold halfway
 # between ink and paper, as the pencil is faint), about 30 px after the margins. IAM's text lines and the mixed
 # lines made from them are long, so fitting them 1024 px wide shrinks them: 27.5 and 33.5 px at the inference
-# size (the margins barely matter on a wide line).
-SMALLER_HANDWRITTEN_SYMBOL_PX = {"hme100k": 30, "iam": 27, "mixed_lines": 32}
+# size (the margins barely matter on a wide line). GNHK's lines are short photos, half of them limited by width:
+# 33 px at the inference size, about 31 after the margins.
+SMALLER_HANDWRITTEN_SYMBOL_PX = {"hme100k": 30, "iam": 27, "mixed_lines": 32, "gnhk": 31}
 
 
 def draw_scales(sources, rng: np.random.Generator) -> np.ndarray:

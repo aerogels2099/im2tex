@@ -32,6 +32,8 @@ SOURCES = {
     "iam_valid": (DATA / "iam/validation", None),
     "mixed_lines": (DATA / "mixed_lines/train", 0.0),
     "mixed_lines_valid": (DATA / "mixed_lines/val", None),
+    "gnhk": (DATA / "gnhk/train", 0.0),
+    "gnhk_valid": (DATA / "gnhk/validation", None),
 }
 FEATURES = Features({"id": Value("string"), "source": Value("string"), "label": Value("string"),
                      "image": Value("binary"), "width": Value("int32"), "height": Value("int32")})

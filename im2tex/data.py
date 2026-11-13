@@ -17,7 +17,7 @@ INK = 200  # pixels darker than this count as ink when cropping
 MARGIN = 4  # pixels kept around the ink
 PAD_ID = 0  # tokenizer's <pad>
 # Sources whose rows are lines of words and math, read from <line> instead of <bos>.
-LINE_SOURCES = frozenset({"iam", "iam_valid", "mixed_lines", "mixed_lines_valid"})
+LINE_SOURCES = frozenset({"iam", "iam_valid", "mixed_lines", "mixed_lines_valid", "gnhk", "gnhk_valid"})
 
 
 def ink_box(img: Image.Image):

@@ -61,7 +61,7 @@ def test_draw_scales_put_median_symbols_between_8_or_12_and_60_px():
     assert 12 - 1e-9 <= handwritten.min() and handwritten.max() <= 60 + 1e-9
     assert (printed > 30).mean() > 0.1 and (handwritten < 20).mean() > 0.1  # slide-sized print, small writing
     assert 0.65 < ((u >= 0.5) & (u <= 1.0)).mean() < 0.85  # mostly the old 0.5-1.0
-    for source in ("hme100k", "iam", "mixed_lines"):  # photos and long lines come out smaller
+    for source in ("hme100k", "iam", "mixed_lines", "gnhk"):  # photos and long lines come out smaller
         px = draw_scales(np.array([source] * 20000), np.random.default_rng(1)) * SMALLER_HANDWRITTEN_SYMBOL_PX[source]
         assert 12 - 1e-9 <= px.min() and px.max() <= 60 + 1e-9
 
