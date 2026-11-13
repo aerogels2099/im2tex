@@ -19,6 +19,9 @@
 #                            https://fki.tic.heia-fr.ch/databases/iam-handwriting-database . Fetched from Teklia's
 #                            Hugging Face copy (Teklia/IAM-line, lines scaled to 128 px high); its card says MIT, but
 #                            the original terms still apply.
+#   GNHK (text in the wild)  CC BY 4.0  https://github.com/GoodNotes/GNHK-dataset (GoodNotes' download page is
+#                            gone). Fetched from a page-level Hugging Face copy that keeps the original word
+#                            annotations (radhakrishnadeshpande/gnhk-pagelevel).
 set -euo pipefail
 DATA=${IM2TEX_DATA:-$HOME/im2tex-data}
 
@@ -50,5 +53,12 @@ sha256sum -c --quiet <<EOF
 c9a8f3192f1ac13c54bd900b3e9dcfa9351060b852b0a95e4dff1cf7dd713c89  $DATA/iam/train.parquet
 2d197f94c94fe27a8279a3c4e79e3f84cff7afdff2cf617110976595962f6fab  $DATA/iam/validation.parquet
 589e05a7db328287d380f33ebc566ebba43baf9f879eb7e102b2706a4212f61b  $DATA/iam/test.parquet
+EOF
+GNHK=https://huggingface.co/datasets/radhakrishnadeshpande/gnhk-pagelevel/resolve/0189a76ad06a7df77f21b1fb6fb1fd12414b00f3/data
+for f in train-00000-of-00002 train-00001-of-00002 test-00000-of-00001; do fetch "$GNHK/$f.parquet" "$DATA/gnhk"; done
+sha256sum -c --quiet <<EOF
+2d82b8bc074c198b32db3f8eb008bf1d4c1d432590b946b64a08c2d15f48fff3  $DATA/gnhk/train-00000-of-00002.parquet
+91a18c41ea80d011636416f7a19e6bc519ec03d562baab3fe23a1188edcadb08  $DATA/gnhk/train-00001-of-00002.parquet
+0394cdaad9ef1254c752dd5a0c016784041af3c58d29ee537a8869b6c8e48922  $DATA/gnhk/test-00000-of-00001.parquet
 EOF
 echo "done"

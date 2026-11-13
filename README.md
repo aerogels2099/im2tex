@@ -24,13 +24,14 @@ because reading from `/mnt/c` is several times slower.
 ## Data
 
 ```bash
-bash scripts/download_data.sh          # UniMER-1M + test, MathWriting, CROHME, HME100K, IAM
+bash scripts/download_data.sh          # UniMER-1M + test, MathWriting, CROHME, HME100K, IAM, GNHK
 python scripts/prepare_unimer.py       # each split -> refs.jsonl ({"id", "image", "ref", "norm"}) + images/
 python scripts/prepare_mathwriting.py  # render pen strokes to PNG
 python scripts/prepare_crohme.py       # invert to dark-on-white PNG
 python scripts/prepare_crohme2023.py   # test only: handwriting scanned from paper
 python scripts/prepare_hme100k.py      # train only: photos of handwritten school math
 python scripts/prepare_iam.py          # handwritten English text lines, labels written back as written
+python scripts/prepare_gnhk.py         # photographed handwriting from many writers, cut into straightened lines
 python scripts/prepare_omnidocbench.py # test only: display equations cut from real slides, textbooks, papers
 python scripts/render_synthetic.py ~/im2tex-data/unimer/train/refs.jsonl --n 50000   # 9 math fonts
 python scripts/make_mixed_lines.py --split train --n 150000   # IAM lines cut at word gaps, formulas glued in
@@ -43,7 +44,7 @@ python scripts/build_shards.py         # train/val -> Arrow shards (~11 GB, 24 f
 |---|---|---|
 | train | 1,901,348 | formulas: UniMER-1M 981k, MathWriting 230k + 396k synthetic + 6k symbols, HME100K 74k, synthetic printed 49k, CROHME 9k; lines: mixed 150k, IAM 6k |
 | val | 23,536 | formulas: MathWriting valid, 0.5% of UniMER and 2% of synthetic printed (held out by id hash); lines: IAM validation, 1k mixed |
-| test | as prepared | UniMER-Test spe/cpe/sce/hwe, CROHME 2014/2016/2019/2023, MathWriting test, im2latex-100k, OmniDocBench slides+notes / textbooks / papers+exams; IAM test lines |
+| test | as prepared | UniMER-Test spe/cpe/sce/hwe, CROHME 2014/2016/2019/2023, MathWriting test, im2latex-100k, OmniDocBench slides+notes / textbooks / papers+exams; IAM and GNHK test lines |
 
 Lines (IAM's and the mixed ones) are labeled as text with `$...$` math and read from a `<line>` start token
 instead of `<bos>`, so the same model reads a formula crop or a line of handwritten notes.
@@ -124,6 +125,7 @@ and each keeps its own license.
 | im2latex-100k | see the dataset card (`yuntian-deng/im2latex-100k`) | test |
 | HME100K (unofficial Hugging Face copy) | TAL Education's terms, research only | training |
 | IAM text lines (Teklia's Hugging Face copy) | IAM's terms, non-commercial research only | training, test |
+| GNHK (GoodNotes; a page-level Hugging Face copy) | CC BY 4.0 | training, test |
 | Handwritten notes pages (HumynLabs) | unclear: listed as CC BY 4.0, but the pages credit pkalika.in | test |
 
 **Model weights** trained here learn from MathWriting, CROHME, HME100K and IAM, so share them for research and
