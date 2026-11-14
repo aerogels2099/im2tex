@@ -82,6 +82,27 @@ def test_generate_never_closes_unopened_braces_or_ends_with_open_ones(beams):
             assert depth >= 0
 
 
+@pytest.mark.parametrize("beams", [1, 4])
+def test_stop_loops_ends_a_repeating_reading_after_its_first_copy(beams):
+    torch.manual_seed(0)
+    model = Im2Tex(vocab_size=20, d_model=32, n_layers=1, n_heads=2, pretrained=False, max_tokens=200).eval()
+    scripts = [[9, 8] + [5, 6, 7] * 100,  # a pattern repeating to the end
+               [9] + [4] * 200,  # one token over and over
+               [9, 3, EOS] + [4] * 200,  # ends normally
+               [9, 8, 9, 8, 9, 8, 3, EOS] + [4] * 200]  # a short repeat, as in real formulas
+    real_step = model._step
+
+    def step(tokens, t, *args):  # the real step fills the cache beam search reorders; the scripted token wins
+        logits = real_step(tokens, t, *args) * 0
+        logits[torch.arange(tokens.shape[0]), [scripts[i // beams][t] for i in range(tokens.shape[0])]] = 50.0
+        return logits
+    model._step = step
+    out, looped = model.generate(torch.rand(4, 1, 32, 64), BOS, EOS, beams=beams, stop_loops=True)
+    assert [_until_eos(r) for r in out.tolist()] == [[BOS, 9, 8, 5, 6, 7, EOS], [BOS, 9, 4, EOS],
+                                                     [BOS, 9, 3, EOS], [BOS, 9, 8, 9, 8, 9, 8, 3, EOS]]
+    assert looped.tolist() == [True, True, False, False]
+
+
 def test_checkpoint_round_trip(tmp_path):
     model = _tiny()
     save_checkpoint(model, tmp_path / "m.pt", step=7)

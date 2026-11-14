@@ -6,6 +6,10 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+# A reading is looping once some pattern of up to LOOP_PERIOD tokens has repeated LOOP_COPIES times over at least
+# LOOP_SPAN tokens. Of 270k training and test labels, 5 repeat that much (2^{2^{2^...}}, runs of ~).
+LOOP_PERIOD, LOOP_COPIES, LOOP_SPAN = 128, 4, 64
+
 
 class Im2Tex(nn.Module):
     def __init__(self, vocab_size: int, d_model: int = 512, n_layers: int = 6, n_heads: int = 8,
@@ -101,12 +105,16 @@ class Im2Tex(nn.Module):
         return self.head(self.norm(x))[:, 0]
 
     @torch.no_grad()
-    def generate(self, images, bos: int, eos: int, max_len: int | None = None, brace_delta=None, beams: int = 1):
+    def generate(self, images, bos: int, eos: int, max_len: int | None = None, brace_delta=None, beams: int = 1,
+                 stop_loops: bool = False):
         """Beam search (greedy for beams=1) -> (B, T) token ids starting with bos; finished rows are filled
         with eos. Beams are ranked by total log-probability.
 
         brace_delta: (vocab,) tensor of each token's net '{' minus '}'. With it, a token that would close a
-        brace that isn't open is blocked, and a formula can't end while braces are open."""
+        brace that isn't open is blocked, and a formula can't end while braces are open.
+
+        stop_loops: a beam that starts repeating itself (see LOOP_PERIOD) is ended after the first copy of the
+        repeated pattern, possibly with braces open. Returns (token ids, (B,) bool: the reading was stopped)."""
         b, k, device = images.shape[0], beams, images.device
         n, steps = b * k, min(max_len or self.config["max_tokens"], self.config["max_tokens"])
         cross = self._cross_kv(self.encode(images))
@@ -118,6 +126,10 @@ class Im2Tex(nn.Module):
         depth = torch.zeros(n, dtype=torch.long, device=device)
         done = torch.zeros(n, dtype=torch.bool, device=device)
         first_beam = torch.arange(b, device=device)[:, None] * k
+        looped = torch.zeros(n, dtype=torch.bool, device=device)
+        periods = torch.arange(1, LOOP_PERIOD + 1, device=device)
+        run = torch.zeros(n, LOOP_PERIOD, dtype=torch.long, device=device)  # tokens in a row equal to p back
+        positions = torch.arange(steps, device=device)
         t = -1
         for t in range(steps - 1):
             logp = self._step(tokens[:, t], t, cross, cache, steps).float().log_softmax(-1)
@@ -137,9 +149,22 @@ class Im2Tex(nn.Module):
             if brace_delta is not None:
                 depth = depth[src] + brace_delta[nxt]
             done = done[src] | (nxt == eos)
+            if stop_loops:
+                looped, run = looped[src], run[src]
+                back = t + 1 - periods
+                run = (run + 1) * ((back >= 1) & (tokens[:, back.clamp(min=0)] == nxt[:, None]))
+                hit = ~done[:, None] & (run >= (LOOP_COPIES - 1) * periods) & (run + periods >= LOOP_SPAN)
+                stop = hit.any(1)
+                # The shortest repeating pattern: cut where its second copy starts.
+                cut = t + 2 - run.gather(1, hit.int().argmax(1, keepdim=True))
+                tokens = tokens.masked_fill(stop[:, None] & (positions[None] >= cut), eos)
+                done, looped = done | stop, looped | stop
             if done.all():
                 break
-        best = tokens.view(b, k, steps)[torch.arange(b, device=device), score.argmax(-1)]
+        pick = score.argmax(-1)
+        best = tokens.view(b, k, steps)[torch.arange(b, device=device), pick]
+        if stop_loops:
+            return best[:, :t + 2], looped.view(b, k)[torch.arange(b, device=device), pick]
         return best[:, :t + 2]
 
 
