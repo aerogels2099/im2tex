@@ -141,6 +141,25 @@ def normalize_or_none(latex: str):
         return None
 
 
+_NAMES = ["arcsin", "arccos", "arctan", "sinh", "cosh", "tanh", "sin", "cos", "tan", "sec", "csc", "cot", "ln", "log",
+          "exp", "lim", "max", "min", "det"]
+_SPELLED = re.compile(r"(?<![A-Za-z\\])(" + "|".join(" ".join(n) for n in _NAMES) + r")(?![A-Za-z])( h(?![A-Za-z]))?")
+
+
+def operator_names(norm: str) -> str:
+    """Write function names spelled as letters in a normalized label (s i n x) as operators (\\sin x).
+
+    Not a normalization (it changes the rendering, italic letters to upright): a labelling policy. MathWriting's
+    labels spell every function name as letters, so a model trained on them writes s i n for handwritten sin,
+    where LaTeX and our other labels have \\sin. An arc- name followed by h (a r c t a n h) has no operator and is
+    left alone."""
+    def sub(m):
+        if m.group(2) and m.group(1).startswith("a r c"):
+            return m.group(0)
+        return "\\" + m.group(1).replace(" ", "") + (m.group(2) or "")
+    return _SPELLED.sub(sub, norm)
+
+
 class _Group(list):
     """A free-standing {...} group; `inner` holds its content units."""
 

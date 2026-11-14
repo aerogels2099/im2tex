@@ -1,6 +1,6 @@
 import pytest
 
-from im2tex.normalize import NormalizeError, normalize
+from im2tex.normalize import NormalizeError, normalize, operator_names
 
 CASES = [
     # scripts
@@ -93,3 +93,15 @@ def test_idempotent(src):
 def test_invalid_input_raises(src):
     with pytest.raises(NormalizeError):
         normalize(src)
+
+
+@pytest.mark.parametrize("src, expected", [
+    ("s i n ^ { 2 } x + c o s x", r"\sin ^ { 2 } x + \cos x"),
+    ("l n 2 - l o g _ { 1 0 } x", r"\ln 2 - \log _ { 1 0 } x"),
+    ("r _ { m i n } = s i n h t", r"r _ { \min } = \sinh t"),
+    ("a r c t a n x + a r c t a n h x", r"\arctan x + a r c t a n h x"),  # no \arctanh: left as letters
+    (r"\sin x + \cos y", r"\sin x + \cos y"),  # already operators
+    ("$ s i n x $ is a sine", r"$ \sin x $ is a sine"),  # page format: words are untouched
+])
+def test_operator_names(src, expected):
+    assert operator_names(src) == expected

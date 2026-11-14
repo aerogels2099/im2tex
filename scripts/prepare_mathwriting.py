@@ -14,7 +14,7 @@ from pathlib import Path
 from PIL import Image
 
 from im2tex.ink import read_inkml, render_ink
-from im2tex.normalize import normalize_or_none
+from im2tex.normalize import normalize_or_none, operator_names
 
 DATA = Path(os.environ.get("IM2TEX_DATA", Path.home() / "im2tex-data"))
 
@@ -25,8 +25,9 @@ def convert(job):
     if not png.exists():
         Image.fromarray(render_ink(strokes)).save(png)
     ref = ann.get("normalizedLabel") or ann.get("label", "")
+    norm = normalize_or_none(ref)
     return {"id": ink.stem, "image": f"images/{ink.stem}.png", "ink": str(ink), "ref": ref,
-            "norm": normalize_or_none(ref)}
+            "norm": operator_names(norm) if norm else norm}
 
 
 if __name__ == "__main__":
