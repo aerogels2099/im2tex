@@ -66,11 +66,13 @@ python scripts/train.py --run run2 --init ~/im2tex-data/runs/base/best.pt --step
 python scripts/train.py --run run3 --init ~/im2tex-data/runs/run2/best.pt --steps 50000 --lr 1e-4 --warmup 1000 --compile
 python scripts/train.py --run run4 --init ~/im2tex-data/runs/run3/best.pt --steps 50000 --lr 1e-4 --warmup 1000 \
     --repeat iam=30 mixed_lines=2 --compile                # IAM lines shown 30 times per pass, mixed lines twice
+python scripts/train.py --run run5 --init ~/im2tex-data/runs/run4/best.pt --steps 50000 --lr 1e-4 --warmup 1000 \
+    --repeat iam=30 mixed_lines=2 gnhk=30 --compile
 ```
 
-`predict.py` uses `run4` by default. `run2`, `run3` and `run4` each train the previous run's best weights 50k more
-steps at a lower learning rate (~3.5 h each). HME100K was added to the shards before `run3`, and the lines (IAM and
-mixed) before `run4`, which grows the vocabulary by the `<line>` token.
+`predict.py` uses `run5` by default. `run2` to `run5` each train the previous run's best weights 50k more
+steps at a lower learning rate (~3.5 h each). HME100K was added to the shards before `run3`, the lines (IAM and
+mixed) before `run4`, which grows the vocabulary by the `<line>` token, and GNHK's lines before `run5`.
 
 Resumable: rerunning the same `--run` continues from `runs/<run>/last.pt` (saved every 1000 steps).
 Logs go to `runs/<run>/log.jsonl`; `best.pt` is the checkpoint with the best validation exact match on formulas,
@@ -95,7 +97,7 @@ python scripts/export_im2latex.py --split test --n 1000
 python scripts/evaluate.py runs/pix2tex.jsonl      # writes runs/pix2tex.metrics.json
 python scripts/benchmark_throughput.py             # training samples/s on this GPU
 bash baselines/run_suite.sh im2tex-base ~/venvs/im2tex/bin/python   # one model on every test set, then the table
-python baselines/run_baseline.py im2tex-run4 ~/im2tex-data/iam/test runs/lines/iam_test.jsonl --line
+python baselines/run_baseline.py im2tex-run5 ~/im2tex-data/iam/test runs/lines/iam_test.jsonl --line
 python scripts/evaluate_pages.py runs/lines/iam_test.jsonl  # lines: character error rate, formulas found
 ```
 
