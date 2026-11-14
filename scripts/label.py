@@ -206,6 +206,12 @@ def serve(split: Path, ids: list[str], suggestions: dict, port: int, pages: bool
         return {"parts": [part(k, c) for k, c in parts]}
 
     class Handler(BaseHTTPRequestHandler):
+        def handle(self):
+            try:
+                super().handle()
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the browser stopped waiting, e.g. moved on before a page image finished loading
+
         def _send(self, body: bytes, kind: str, status: int = 200):
             self.send_response(status)
             self.send_header("Content-Type", kind)
