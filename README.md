@@ -6,7 +6,11 @@ with `$...$`.
 ```bash
 python scripts/predict.py screenshot.png photo.jpg      # one equation per image, cropped close
 python scripts/predict.py --line line.jpg               # one line of handwriting per image
+python scripts/read_pdf.py notes.pdf --pages 3 5-7      # handwritten PDF pages with vector ink (OneNote's export)
 ```
+
+`read_pdf.py` finds each line of writing from the pen strokes, in the order they were written, and prints the
+page as text with `$...$`, a line that is all math as `$$...$$`. Typed text and pasted pictures are not read.
 
 ## Setup (WSL2 Ubuntu 24.04, no sudo)
 
