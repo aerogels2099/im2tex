@@ -7,8 +7,9 @@ import torch.nn.functional as F
 from torch import nn
 
 # A reading is looping once some pattern of up to LOOP_PERIOD tokens has repeated LOOP_COPIES times over at least
-# LOOP_SPAN tokens. Of 270k training and test labels, 5 repeat that much (2^{2^{2^...}}, runs of ~).
-LOOP_PERIOD, LOOP_COPIES, LOOP_SPAN = 128, 4, 64
+# LOOP_SPAN tokens. Of 270k training and test labels, 5 repeat that much (2^{2^{2^...}}, runs of ~). Checked every
+# LOOP_CHECK tokens from LOOP_SPAN on, so most readings, being shorter, never pay for it.
+LOOP_PERIOD, LOOP_COPIES, LOOP_SPAN, LOOP_CHECK = 128, 4, 64, 8
 
 
 class Im2Tex(nn.Module):
@@ -126,10 +127,13 @@ class Im2Tex(nn.Module):
         depth = torch.zeros(n, dtype=torch.long, device=device)
         done = torch.zeros(n, dtype=torch.bool, device=device)
         first_beam = torch.arange(b, device=device)[:, None] * k
-        looped = torch.zeros(n, dtype=torch.bool, device=device)
-        periods = torch.arange(1, LOOP_PERIOD + 1, device=device)
-        run = torch.zeros(n, LOOP_PERIOD, dtype=torch.long, device=device)  # tokens in a row equal to p back
         positions = torch.arange(steps, device=device)
+        if stop_loops:
+            periods = torch.arange(1, LOOP_PERIOD + 1, device=device)
+            ahead = positions[None] + periods[:, None]  # (periods, steps): j + p
+            # r tokens in a row, each equal to the one p back, are a loop once r >= (copies - 1) p and r + p >= span
+            need = torch.maximum((LOOP_COPIES - 1) * periods, LOOP_SPAN - periods)
+            cut_at = torch.full((n,), steps, device=device)  # where a stopped beam's repeats start
         t = -1
         for t in range(steps - 1):
             logp = self._step(tokens[:, t], t, cross, cache, steps).float().log_softmax(-1)
@@ -150,21 +154,27 @@ class Im2Tex(nn.Module):
                 depth = depth[src] + brace_delta[nxt]
             done = done[src] | (nxt == eos)
             if stop_loops:
-                looped, run = looped[src], run[src]
-                back = t + 1 - periods
-                run = (run + 1) * ((back >= 1) & (tokens[:, back.clamp(min=0)] == nxt[:, None]))
-                hit = ~done[:, None] & (run >= (LOOP_COPIES - 1) * periods) & (run + periods >= LOOP_SPAN)
-                stop = hit.any(1)
-                # The shortest repeating pattern: cut where its second copy starts.
-                cut = t + 2 - run.gather(1, hit.int().argmax(1, keepdim=True))
-                tokens = tokens.masked_fill(stop[:, None] & (positions[None] >= cut), eos)
-                done, looped = done | stop, looped | stop
+                if k > 1:
+                    cut_at = cut_at[src]
+                m = t + 1  # tokens generated so far
+                if m >= LOOP_SPAN and m % LOOP_CHECK == 0:
+                    recent = F.pad(tokens[:, 1:m + 1].flip(1), (0, LOOP_PERIOD), value=-1)  # newest first
+                    same = recent[:, None, :m] == recent[:, ahead[:, :m]]  # (n, periods, m): j back == j + p back
+                    run = same.int().cumprod(-1).sum(-1)  # the newest tokens in a row equal to the one p back
+                    hit = run * (run >= need)
+                    stop = hit.any(1) & ~done
+                    # Keep the first copy of the shortest repeating pattern (the longest run): cut where the
+                    # second starts. The repeats stay in tokens until the end; a stopped beam only adds eos.
+                    cut_at = torch.where(stop, m + 1 - hit.amax(1), cut_at)
+                    done = done | stop
             if done.all():
                 break
-        pick = score.argmax(-1)
-        best = tokens.view(b, k, steps)[torch.arange(b, device=device), pick]
+        pick, rows = score.argmax(-1), torch.arange(b, device=device)
         if stop_loops:
-            return best[:, :t + 2], looped.view(b, k)[torch.arange(b, device=device), pick]
+            tokens = tokens.masked_fill(positions >= cut_at[:, None], eos)
+        best = tokens.view(b, k, steps)[rows, pick]
+        if stop_loops:
+            return best[:, :t + 2], (cut_at < steps).view(b, k)[rows, pick]
         return best[:, :t + 2]
 
 
