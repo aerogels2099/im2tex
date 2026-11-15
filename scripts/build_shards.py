@@ -35,6 +35,9 @@ SOURCES = {
     "mixed_lines_valid": (DATA / "mixed_lines/val", None),
     "gnhk": (DATA / "gnhk/train", 0.0),
     "gnhk_valid": (DATA / "gnhk/validation", None),
+    # Your own handwritten pages (scripts/prepare_ink_pages.py), when there are any.
+    "ink_pages": (DATA / "ink_pages/train", 0.0),
+    "ink_pages_valid": (DATA / "ink_pages/validation", None),
 }
 FEATURES = Features({"id": Value("string"), "source": Value("string"), "label": Value("string"),
                      "image": Value("binary"), "width": Value("int32"), "height": Value("int32")})

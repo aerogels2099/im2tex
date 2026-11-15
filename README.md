@@ -40,6 +40,7 @@ python scripts/prepare_omnidocbench.py # test only: display equations cut from r
 python scripts/render_synthetic.py ~/im2tex-data/unimer/train/refs.jsonl --n 50000   # 9 math fonts
 python scripts/make_mixed_lines.py --split train --n 150000   # IAM lines cut at word gaps, formulas glued in
 python scripts/make_mixed_lines.py --split val --n 1000
+python scripts/prepare_ink_pages.py notes.pdf transcriptions/ ~/im2tex-data/ink_pages  # optional: your own pages
 python scripts/train_tokenizer.py <train refs.jsonl ...> --report <test refs.jsonl ...>
 python scripts/build_shards.py         # train/val -> Arrow shards (~11 GB, 24 files)
 ```
@@ -52,6 +53,11 @@ python scripts/build_shards.py         # train/val -> Arrow shards (~11 GB, 24 f
 
 Lines (IAM's, GNHK's and the mixed ones) are labeled as text with `$...$` math and read from a `<line>` start token
 instead of `<bos>`, so the same model reads a formula crop or a line of handwritten notes.
+
+To teach it your own handwriting: transcribe some pages of a vector-ink PDF in the page format (`im2tex/page.py`),
+one file per page named `...p<page number>.txt`. `prepare_ink_pages.py` finds their lines, matches them to the
+transcriptions and writes the `ink_pages` split, which `build_shards.py` picks up; repeat it in training with
+`--repeat ink_pages=50`.
 
 Labels from every dataset go through `im2tex/normalize.py`, which rewrites LaTeX into one canonical
 spelling (`{\bf C}` → `\mathbf { C }`, `x^2_i` → `x _ { i } ^ { 2 }`, `\le` → `\leq`, ...) so formulas that
