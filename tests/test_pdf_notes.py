@@ -5,7 +5,8 @@ import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 
 from im2tex.ink import PdfStroke
-from im2tex.pdf_notes import Line, group_notes, join_side_notes, note_lines, read_note, to_markdown, typed_lines
+from im2tex.pdf_notes import (Line, group_notes, join_side_notes, latex, note_lines, read_note, to_markdown,
+                              typed_lines)
 
 
 def test_a_note_in_parentheses_joins_the_line_on_its_row():
@@ -19,10 +20,29 @@ def test_markdown_keeps_written_lines_apart_and_numbers_as_written():
     lines = ["12. There exists an irrational number and", "a rational number whose product is rational",
              "15. b) True", "d) True", "$$x = 1$$", "so x is odd", "- 3 apples"]
     assert to_markdown("5.3-4 Homework", "Thursday, September 11, 2025 4:04 PM", lines) == (
-        "# 5.3-4 Homework\n\nThursday, September 11, 2025 4:04 PM\n\n"
+        "# 5.3-4 Homework\n\n*Thursday, September 11, 2025 4:04 PM*\n\n"
         "12\\. There exists an irrational number and\na rational number whose product is rational\n\n"
-        "15\\. b) True\n\nd) True\n\n$$x = 1$$\n\nso x is odd\n\n\\- 3 apples\n")
+        "15\\. b) True\n\nd) True\n\n$$\nx = 1\n$$\n\nso x is odd\n\n\\- 3 apples\n")
     assert to_markdown(None, "Monday, December 15, 2025 1:31 AM", ["x"]) == "# Monday, December 15, 2025 1:31 AM\n\nx\n"
+
+
+def test_latex_is_written_compactly():
+    assert latex(r"\frac { 2 ^ { x } } { \ln 2 } | _ { 0 } ^ { 1 }".split()) == r"\frac{2^x}{\ln 2}\Big|_0^1"
+    assert latex(r"\int _ { 0 } ^ { 1 } 2 ^ { x } d x".split()) == r"\int_0^1 2^x dx"
+    assert latex(r"= - 3 x ^ { 2 } + 2 x , x \in \mathbb { R }".split()) == r"= -3x^2 + 2x, x \in \mathbb{R}"
+    assert latex(r"| x | ^ { 2 } = x ^ { 1 0 }".split()) == r"|x|^2 = x^{10}"  # an absolute value keeps its bar
+
+
+def test_a_solution_is_one_centered_block_aligned_at_its_relations():
+    lines = [r"4. $ \int _ { 0 } ^ { 1 } x d x $", r"$$= \frac { 1 } { 2 }$$", r"$$u = x ^ { 2 }$$",
+             r"$ \equiv p $ (De Morgan's Law)", r"$$\int _ { 0 } ^ { 2 } x d x$$", "$$= 2$$",  # the next problem
+             r"So the area is $ \frac { 1 } { 2 } $", "$$x + 1$$", "$$y$$"]
+    assert to_markdown("T", None, lines) == (
+        "# T\n\n**4.**\n\n"
+        "$$\n\\begin{aligned}\n\\int_0^1 xdx & \\\\\n&= \\frac{1}{2} \\\\\nu &= x^2 \\\\\n"
+        "&\\equiv p && \\text{(De Morgan's Law)}\n\\end{aligned}\n$$\n\n"
+        "$$\n\\begin{aligned}\n\\int_0^2 xdx & \\\\\n&= 2\n\\end{aligned}\n$$\n\n"
+        "So the area is $\\frac{1}{2}$\n\n$$\n\\begin{gathered}\nx + 1 \\\\\ny\n\\end{gathered}\n$$\n")
 
 
 def _stroke(x, y, s):
@@ -78,4 +98,4 @@ def test_a_note_reads_its_title_and_date_and_leaves_out_footers(tmp_path):
     reads = iter(["One", "Two"])  # the line on page 1, then page 2's
     title, text = read_note(pdf, [1, 2], lambda images: [next(reads)], tmp_path, "pictures")
     assert title == "5.3-4 Homework"
-    assert text == "# 5.3-4 Homework\n\nThursday, September 11, 2025 4:04 PM\n\nOne\n\nTwo\n"
+    assert text == "# 5.3-4 Homework\n\n*Thursday, September 11, 2025 4:04 PM*\n\nOne\n\nTwo\n"

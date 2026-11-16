@@ -20,6 +20,12 @@ DATE = re.compile(r"(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), 
 FOOTER = 50.0  # pt: typed text this close to the page's bottom edge is the footer
 ICON = 50.0  # pt: a picture smaller than this is an attachment's icon, with the file's name typed under it
 ITEM = re.compile(r"\(?[a-z]{1,3}[.)]\s")  # b) / (c) / ii. starting a line: an item, not a wrapped sentence
+LABEL = re.compile(r"(\d+[.)]|\(?[a-z]{1,3}\))( (\d+[.)]|\(?[a-z]{1,3}\)))*")  # 4. / b) / 3. a) before a formula
+RELATIONS = {"=", r"\equiv", r"\leq", r"\geq", "<", ">", r"\neq", r"\approx", r"\Rightarrow", r"\Leftrightarrow",
+             r"\iff", r"\implies"}  # a step's relation: rows of a solution align at the first one
+BINARY = {"+", "-", r"\pm", r"\times", r"\cdot", r"\rightarrow", r"\leftarrow", r"\to", r"\in", r"\notin",
+          r"\subseteq", r"\subset", r"\wedge", r"\vee", r"\oplus", r"\cup", r"\cap"}
+WORD = re.compile(r"\\[a-zA-Z]+")
 
 
 @dataclass
@@ -191,17 +197,141 @@ def _continues(prev: str, line: str) -> bool:
             and line[:1].islower() and not ITEM.match(line))
 
 
-def to_markdown(title: str | None, date: str | None, lines: list[str]) -> str:
-    """A note -> Markdown: the title as a heading, the date under it, then each written line as a paragraph of its
-    own, except that a wrapped sentence stays one paragraph."""
-    blocks = [[f"# {title or date or 'Untitled'}"]] + ([[date]] if title and date else [])
-    head = len(blocks)
-    for text in lines:
-        if len(blocks) > head and _continues(blocks[-1][-1], text):
-            blocks[-1].append(text)
+def latex(tokens: list[str]) -> str:
+    """The model's LaTeX, one token per space-separated piece, -> source as a person writes it: x^2, \\frac{1}{2},
+    \\int_0^1 2^x dx, spaces around relations and binary operators. An evaluation bar (| with limits, not closing
+    an absolute value) becomes \\Big|."""
+    toks, k, open_abs = [], 0, False
+    while k < len(tokens):
+        t, nxt = tokens[k], tokens[k + 1] if k + 1 < len(tokens) else ""
+        if t == "|":
+            if nxt not in ("_", "^"):
+                open_abs = not open_abs
+            elif open_abs:
+                open_abs = False
+            else:
+                t = r"\Big|"
+        if (t in ("^", "_") and nxt == "{" and k + 3 < len(tokens) and tokens[k + 3] == "}"
+                and (len(tokens[k + 2]) == 1 and tokens[k + 2] not in "{}" or WORD.fullmatch(tokens[k + 2]))):
+            toks.append(t + tokens[k + 2])  # x ^ { 2 } -> x^2
+            k += 4
+            continue
+        toks.append(t)
+        k += 1
+    s = ""
+    for k, t in enumerate(toks):
+        prev = toks[k - 1] if k else None
+        unary = t in ("-", "+") and (prev is None or prev in RELATIONS | BINARY | {"{", "(", "[", "&", ","})
+        if t == "&":
+            s = s.rstrip() + " &"
+        elif t in RELATIONS and prev == "&":
+            s += t + " "
+        elif t in RELATIONS | BINARY and not unary:
+            s = s.rstrip() + f" {t} "
+        elif t == ",":
+            s = s.rstrip() + ", "
+        elif t == r"\\":
+            s = s.rstrip() + r" \\ "
+        elif t[:1].isalnum() and (re.search(r"\\[a-zA-Z]+$", s) or prev and prev[:1] in "^_" and len(prev) > 1):
+            s += " " + t  # \ln 2, and \int_0^1 2^x rather than \int_0^12^x
         else:
-            blocks.append([_escape(text)])
-    return "\n\n".join("\n".join(b) for b in blocks) + "\n"
+            s += t
+    return s.strip()
+
+
+def _align_at(tokens: list[str]) -> int | None:
+    """Where a display row aligns with the rest of its solution: its first relation outside any brackets (a row
+    may also start with \\rightarrow, continuing the row above)."""
+    depth = 0
+    for i, t in enumerate(tokens):
+        if t in ("{", "(", "[", r"\{"):
+            depth += 1
+        elif t in ("}", ")", "]", r"\}"):
+            depth -= 1
+        elif depth == 0 and (t in RELATIONS or i == 0 and t == r"\rightarrow"):
+            return i
+    return None
+
+
+def _display(rows: list[tuple[list[str], str | None]]) -> str:
+    """A solution's display rows (tokens, reason or None) -> one centered block: the rows aligned at their first
+    relation (a row without one ends at the alignment), reasons such as "(De Morgan's Law)" in a column of their
+    own; rows with no relation at all are just centered."""
+    if len(rows) == 1 and not rows[0][1]:
+        return "$$\n" + latex(rows[0][0]) + "\n$$"
+    if not any(_align_at(t) is not None or reason for t, reason in rows):
+        return "$$\n\\begin{gathered}\n" + " \\\\\n".join(latex(t) for t, _ in rows) + "\n\\end{gathered}\n$$"
+    out = []
+    for t, reason in rows:
+        i = _align_at(t)
+        line = latex(t[:i] + ["&"] + t[i:] if i is not None else t + ["&"])
+        if reason:
+            line += " && \\text{" + re.sub(r"([{}&%#_$])", r"\\\1", reason) + "}"
+        out.append(line)
+    return "$$\n\\begin{aligned}\n" + " \\\\\n".join(out) + "\n\\end{aligned}\n$$"
+
+
+def _inline(text: str) -> str:
+    """A written line with words: its math written compactly between $ signs (no space inside them)."""
+    try:
+        parts = split_page(text)
+    except PageError:
+        return text
+    return "".join(c if k == "text" else f"${latex(c.split())}$" if k == "inline" else f"$${latex(c.split())}$$"
+                   for k, c in parts)
+
+
+def _kind(text: str):
+    """A written line -> ("display", (tokens, reason)) for a formula alone or followed by a reason in parentheses,
+    ("label", (label, tokens)) for a problem label followed by a formula, or ("text", None)."""
+    try:
+        parts = [(k, c) for k, c in split_page(text) if k != "text" or c.strip()]
+    except PageError:
+        return "text", None
+    if len(parts) == 1 and parts[0][0] != "text":
+        return "display", (parts[0][1].split(), None)
+    if len(parts) == 2 and parts[0][0] != "text" and parts[1][0] == "text" and re.fullmatch(r"\(.*\)", parts[1][1].strip()):
+        return "display", (parts[0][1].split(), parts[1][1].strip())
+    if len(parts) == 2 and parts[0][0] == "text" and parts[1][0] != "text" and LABEL.fullmatch(parts[0][1].strip()):
+        return "label", (parts[0][1].strip(), parts[1][1].split())
+    return "text", None
+
+
+def to_markdown(title: str | None, date: str | None, lines: list[str]) -> str:
+    """A note -> Markdown laid out like a typeset solution: the title as a heading and the date under it; words
+    left-aligned, each written line a paragraph of its own except that a wrapped sentence stays one; formulas
+    displayed and centered, consecutive ones (one solution's steps) in one block aligned at their relations; a
+    problem label before a formula on a line of its own above it."""
+    blocks = [f"# {title or date or 'Untitled'}"] + ([f"*{date}*"] if title and date else [])
+    rows, para, last = [], [], None  # pending display rows; pending paragraph lines; the raw last line of para
+
+    def flush():
+        if para:
+            blocks.append("\n".join(para))
+            para.clear()
+        if rows:
+            blocks.append(_display(rows))
+            rows.clear()
+
+    for text in lines:
+        kind, parts = _kind(text)
+        if kind == "display":
+            if para or rows and _align_at(parts[0]) is None and _align_at(rows[-1][0]) == 0:
+                flush()  # after words, or a new expression after a chain of = steps: a new solution
+            rows.append(parts)
+        elif kind == "label":
+            flush()
+            blocks.append(f"**{parts[0]}**")
+            rows.append((parts[1], None))
+        elif para and _continues(last, text):
+            para.append(_inline(text))
+            last = text
+        else:
+            flush()
+            para.append(_escape(_inline(text)))
+            last = text
+    flush()
+    return "\n\n".join(blocks) + "\n"
 
 
 def read_note(pdf, pages: list[int], predict, assets: Path, link: str) -> tuple[str | None, str]:

@@ -15,7 +15,7 @@ in later above others comes before them), and prints the page as text with `$...
 `$$...$$`. Typed text and pasted pictures are not read. With `--markdown`, each note (OneNote prints a date on
 its first page) becomes a `.md` file: its typed title as the heading with the date under it, its pages joined so
 that a line cut by a page break is read whole, and printouts or other pictures saved in `pictures/` and shown
-where they sit.
+where they sit. Formulas are displayed centered, the steps of one solution in one block aligned at their `=`.
 
 ## Setup (WSL2 Ubuntu 24.04, no sudo)
 
