@@ -21,6 +21,10 @@ FOOTER = 50.0  # pt: typed text this close to the page's bottom edge is the foot
 ICON = 50.0  # pt: a picture smaller than this is an attachment's icon, with the file's name typed under it
 ITEM = re.compile(r"\(?[a-z]{1,3}[.)]\s")  # b) / (c) / ii. starting a line: an item, not a wrapped sentence
 LABEL = re.compile(r"(\d+[.)]|\(?[a-z]{1,3}\))( (\d+[.)]|\(?[a-z]{1,3}\)))*")  # 4. / b) / 3. a) before a formula
+NUMBER = r"[1-9](?: \d)?"  # 1 to 99 as the model writes it, a token per digit
+# A problem label the model read into the start of a formula, as tokens: "1 2 )" / "a )" / "i i )" (a ")" that
+# nothing opened), or "1 4 ." before a non-digit or before digits and a letter ("14. 25x", not "1.81 =").
+LEAD_LABEL = re.compile(rf"(?:{NUMBER} \)|(?:[a-z] ){{1,3}}\)|{NUMBER} \.(?= (?!\d)| (?:\d )+[a-zA-Z()]|$))(?: :)?")
 RELATIONS = {"=", r"\equiv", r"\leq", r"\geq", "<", ">", r"\neq", r"\approx", r"\Rightarrow", r"\Leftrightarrow",
              r"\iff", r"\implies"}  # a step's relation: rows of a solution align at the first one
 BINARY = {"+", "-", r"\pm", r"\times", r"\cdot", r"\rightarrow", r"\leftarrow", r"\to", r"\in", r"\notin",
@@ -253,22 +257,69 @@ def _align_at(tokens: list[str]) -> int | None:
     return None
 
 
-def _display(rows: list[tuple[list[str], str | None]]) -> str:
-    """A solution's display rows (tokens, reason or None) -> one centered block: the rows aligned at their first
-    relation (a row without one ends at the alignment), reasons such as "(De Morgan's Law)" in a column of their
-    own; rows with no relation at all are just centered."""
-    if len(rows) == 1 and not rows[0][1]:
+def _text(words: str) -> str:
+    return "\\text{" + re.sub(r"([{}&%#_$])", r"\\\1", words) + "}"
+
+
+def _aligned(rows: list[tuple[list[str], int | None, str | None]]) -> str:
+    """Rows (tokens, where the row aligns or None, reason or None) -> one centered block aligned at the relations,
+    reasons in a column of their own; one row without a reason as it is."""
+    if len(rows) == 1 and not rows[0][2]:
         return "$$\n" + latex(rows[0][0]) + "\n$$"
-    if not any(_align_at(t) is not None or reason for t, reason in rows):
-        return "$$\n\\begin{gathered}\n" + " \\\\\n".join(latex(t) for t, _ in rows) + "\n\\end{gathered}\n$$"
     out = []
-    for t, reason in rows:
-        i = _align_at(t)
+    for t, i, reason in rows:
         line = latex(t[:i] + ["&"] + t[i:] if i is not None else t + ["&"])
         if reason:
-            line += " && \\text{" + re.sub(r"([{}&%#_$])", r"\\\1", reason) + "}"
+            line += " && " + _text(reason)
         out.append(line)
     return "$$\n\\begin{aligned}\n" + " \\\\\n".join(out) + "\n\\end{aligned}\n$$"
+
+
+def _steps(steps: list[tuple[str, list[str], str]]) -> str:
+    """A proof's steps (number or "", tokens, reason) -> one centered table: the numbers, the statements lined up
+    on their left, the reasons in a column of their own."""
+    rows = [(_text(n) + "\\quad " if n else "") + "& " + latex(t) + " && " + _text(reason) for n, t, reason in steps]
+    return "$$\n\\begin{aligned}\n" + " \\\\\n".join(rows) + "\n\\end{aligned}\n$$"
+
+
+def _substitution(t: list[str]) -> bool:
+    """A row like "u = \\cos x" or "du = -\\sin x": a substitution noted beside a solution's steps."""
+    i = _align_at(t)
+    return bool(i) and t[i] == "=" and re.fullmatch(r"d?[a-z]", "".join(t[:i])) is not None
+
+
+def _display(rows: list[tuple[list[str], str | None]]) -> str:
+    """A solution's display rows (tokens, reason or None) -> centered blocks: the rows aligned at their first
+    relation, a row without one joined to the "= ..." row under it as in typeset solutions ("expr &= a \\\\ &= b")
+    or else centered by itself (nothing goes on from it), reasons such as "(De Morgan's Law)" in a column of their
+    own; rows with no relation at all are just centered, together. A substitution written between two steps of
+    a chain ("du = -\\sin x" before "= -\\int ...") goes after the block, the chain unbroken."""
+    aside, kept = [], []
+    for k, row in enumerate(rows):
+        after = next((t for t, _ in rows[k + 1:] if not _substitution(t)), None)
+        (aside if kept and _substitution(row[0]) and after and after[0] == "=" else kept).append(row)
+    if aside:
+        return _display(kept) + "\n\n" + _display(aside)
+    joined = []  # (tokens, where the row aligns or None, reason or None)
+    for t, reason in rows:
+        i = _align_at(t)
+        if joined and joined[-1][1] is None and i == 0 and not (joined[-1][2] and reason):
+            first, _, why = joined.pop()
+            t, i, reason = first + t, len(first), reason or why
+        joined.append((t, i, reason))
+    if len(joined) > 1 and all(i is None and not reason for _, i, reason in joined):
+        return "$$\n\\begin{gathered}\n" + " \\\\\n".join(latex(t) for t, _, _ in joined) + "\n\\end{gathered}\n$$"
+    blocks, run = [], []
+    for row in joined + [None]:
+        if row is None or row[1] is None and not row[2]:
+            if run:
+                blocks.append(_aligned(run))
+                run = []
+            if row:
+                blocks.append(_aligned([row]))
+        else:
+            run.append(row)
+    return "\n\n".join(blocks)
 
 
 def _inline(text: str) -> str:
@@ -281,29 +332,70 @@ def _inline(text: str) -> str:
                    for k, c in parts)
 
 
+def _label_out(text: str) -> str:
+    """A problem label the model read into the formula that starts a line ("$ a ) : Q ( 1 , 2 ) $", "4. $ 1 2 ) x $",
+    "$$ 1 4 . 2 5 x ^ { 2 } $$" for "14. 25x^2") -> moved in front of it, as words: "a) $Q ( 1 , 2 )$". A label
+    read "12," before a formula -> "12."."""
+    text = re.sub(r"^(\d+),(?= \$)", r"\1.", text)
+    try:
+        parts = split_page(text)
+    except PageError:
+        return text
+    i = next((j for j, (k, _) in enumerate(parts) if k != "text"), None)
+    if i is None or i == 1 and not LABEL.fullmatch(parts[0][1].strip()):
+        return text
+    math, labels = " ".join(parts[i][1].split()), []
+    while m := LEAD_LABEL.match(math):
+        labels.append(m.group().replace(" ", "").removesuffix(":"))
+        math = math[m.end():].strip()
+    if not labels:
+        return text
+    d = "$$" if parts[i][0] == "display" else "$"
+    start = text.index(d)
+    head = [parts[0][1].strip()] if i == 1 else []
+    body = [d + math + d] if math else []
+    return " ".join(head + labels + body) + text[start + 2 * len(d) + len(parts[i][1]):]
+
+
 def _kind(text: str):
     """A written line -> ("display", (tokens, reason)) for a formula alone or followed by a reason in parentheses,
-    ("label", (label, tokens)) for a problem label followed by a formula, or ("text", None)."""
+    ("label", (label, tokens)) for a problem label alone or followed by a formula (tokens [] when alone),
+    ("step", (label, tokens, reason)) for a numbered step of a proof ("2. $p \\vee q$ (premise a)"), or
+    ("text", None)."""
     try:
         parts = [(k, c) for k, c in split_page(text) if k != "text" or c.strip()]
     except PageError:
         return "text", None
+    reason = parts[-1][1].strip() if parts and parts[-1][0] == "text" and re.fullmatch(r"\(.*\)", parts[-1][1].strip()) else None
     if len(parts) == 1 and parts[0][0] != "text":
         return "display", (parts[0][1].split(), None)
-    if len(parts) == 2 and parts[0][0] != "text" and parts[1][0] == "text" and re.fullmatch(r"\(.*\)", parts[1][1].strip()):
-        return "display", (parts[0][1].split(), parts[1][1].strip())
-    if len(parts) == 2 and parts[0][0] == "text" and parts[1][0] != "text" and LABEL.fullmatch(parts[0][1].strip()):
-        return "label", (parts[0][1].strip(), parts[1][1].split())
+    if len(parts) == 2 and parts[0][0] != "text" and reason:
+        return "display", (parts[0][1].split(), reason)
+    head = parts[0][1].strip() if parts and parts[0][0] == "text" else ""
+    if len(parts) <= 2 and LABEL.fullmatch(head):
+        return "label", (head, parts[1][1].split() if len(parts) == 2 else [])
+    if len(parts) == 3 and LABEL.fullmatch(head) and parts[1][0] != "text" and reason:
+        return "step", (head, parts[1][1].split(), reason)
     return "text", None
+
+
+def _words(text: str) -> str:
+    """A written line of words, starting a paragraph: a problem label it starts with in bold like those above
+    formulas ("**3.** No"), and kept from reading as a Markdown list item, heading or quote."""
+    m = LABEL.match(text)
+    if m and text[m.end():m.end() + 1] == " ":
+        return f"**{m.group()}** " + _inline(text[m.end():].strip())
+    return _escape(_inline(text))
 
 
 def to_markdown(title: str | None, date: str | None, lines: list[str]) -> str:
     """A note -> Markdown laid out like a typeset solution: the title as a heading and the date under it; words
     left-aligned, each written line a paragraph of its own except that a wrapped sentence stays one; formulas
     displayed and centered, consecutive ones (one solution's steps) in one block aligned at their relations; a
-    problem label before a formula on a line of its own above it."""
+    problem label in bold, before a formula on a line of its own above it; a proof's numbered steps with their
+    reasons one table."""
     blocks = [f"# {title or date or 'Untitled'}"] + ([f"*{date}*"] if title and date else [])
-    rows, para, last = [], [], None  # pending display rows; pending paragraph lines; the raw last line of para
+    rows, steps, para, last = [], [], [], None  # pending display rows, proof steps, paragraph lines; para's last line
 
     def flush():
         if para:
@@ -312,23 +404,37 @@ def to_markdown(title: str | None, date: str | None, lines: list[str]) -> str:
         if rows:
             blocks.append(_display(rows))
             rows.clear()
+        if steps:
+            blocks.append(_steps(steps))
+            steps.clear()
 
     for text in lines:
+        text = _label_out(text)
         kind, parts = _kind(text)
-        if kind == "display":
-            if para or rows and _align_at(parts[0]) is None and _align_at(rows[-1][0]) == 0:
-                flush()  # after words, or a new expression after a chain of = steps: a new solution
+        if kind == "display" and steps and parts[1] and _align_at(parts[0]) is None:
+            kind, parts = "step", ("", *parts)  # a proof's step without a number ("$\therefore \sim q$ (modus tollens)")
+        if kind == "step":
+            *problem, number = parts[0].split() or [""]  # "44) 1.": problem 44), step 1.
+            if problem or not steps:
+                flush()
+            if problem:
+                blocks.append(f"**{' '.join(problem)}**")
+            steps.append((number, parts[1], parts[2]))
+        elif kind == "display":
+            if para or steps or rows and _align_at(parts[0]) is None and _align_at(rows[-1][0]) == 0:
+                flush()  # after words or a proof, or a new expression after a chain of = steps: a new solution
             rows.append(parts)
         elif kind == "label":
             flush()
             blocks.append(f"**{parts[0]}**")
-            rows.append((parts[1], None))
+            if parts[1]:
+                rows.append((parts[1], None))
         elif para and _continues(last, text):
             para.append(_inline(text))
             last = text
         else:
             flush()
-            para.append(_escape(_inline(text)))
+            para.append(_words(text))
             last = text
     flush()
     return "\n\n".join(blocks) + "\n"
@@ -336,7 +442,8 @@ def to_markdown(title: str | None, date: str | None, lines: list[str]) -> str:
 
 def read_note(pdf, pages: list[int], predict, assets: Path, link: str) -> tuple[str | None, str]:
     """A note's pages -> (title, Markdown). Printouts and other pictures are saved to `assets` as 1.png, 2.png, ...
-    and linked as `link`/1.png where they sit; attachment icons and their names are left out."""
+    and linked as `link`/1.png where they sit; an attached file (its icon, its name typed under it) as a line
+    naming it, the file itself not being in the PDF."""
     ink, offsets = note_lines([pdf_strokes(pdf[n - 1]) for n in pages])
     placed, head = [], []  # pictures and typed lines, placed by position; the first page's top typed lines
     for k, (n, dy) in enumerate(zip(pages, offsets)):
@@ -354,16 +461,21 @@ def read_note(pdf, pages: list[int], predict, assets: Path, link: str) -> tuple[
             name = f"{sum(t.startswith('![') for t, _ in placed) + 1}.png"
             obj.get_bitmap(render=True).to_pil().save(assets / name)
             placed.append((f"![]({link}/{name})", (box[0], box[1] + dy, box[2], box[3] + dy)))
+        names = [[] for _ in icons]
         for t in typed_lines(page):
             x0, y0, x1, _ = t.box
             if y0 > page.get_height() - FOOTER:
                 continue
-            if any(i[0] - 30 <= x1 and x0 <= i[2] + 30 and 0 <= y0 - i[3] <= 40 for i in icons):
-                continue  # an attachment's name
-            if k == 0 and (DATE.search(t.text) or y0 < 60):
+            under = [j for j, i in enumerate(icons) if i[0] - 30 <= x1 and x0 <= i[2] + 30 and 0 <= y0 - i[3] <= 40]
+            if under:
+                names[under[0]].append(t)  # an attachment's name, wrapped onto lines of its own
+            elif k == 0 and (DATE.search(t.text) or y0 < 60):
                 head.append(t)
             else:
                 placed.append((t.text, (t.box[0], y0 + dy, t.box[2], t.box[3] + dy)))
+        for (x0, y0, x1, y1), name in zip(icons, names):
+            name = "".join(t.text for t in sorted(name, key=lambda t: t.box[1]))
+            placed.append((f"*Attached file: {name}*" if name else "*Attached file*", (x0, y0 + dy, x1, y1 + dy)))
     date = next((t.text for t in head if DATE.search(t.text)), None)
     title = " ".join(t.text for t in sorted(head, key=lambda t: t.box[1]) if not DATE.search(t.text)) or None
 
