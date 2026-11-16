@@ -7,11 +7,15 @@ with `$...$`.
 python scripts/predict.py screenshot.png photo.jpg      # one equation per image, cropped close
 python scripts/predict.py --line line.jpg               # one line of handwriting per image
 python scripts/read_pdf.py notes.pdf --pages 3 5-7      # handwritten PDF pages with vector ink (OneNote's export)
+python scripts/read_pdf.py notes.pdf --markdown notes/  # each note as a Markdown file
 ```
 
 `read_pdf.py` finds each line of writing from the pen strokes, in the order they were written (a line squeezed
 in later above others comes before them), and prints the page as text with `$...$`, a line that is all math as
-`$$...$$`. Typed text and pasted pictures are not read.
+`$$...$$`. Typed text and pasted pictures are not read. With `--markdown`, each note (OneNote prints a date on
+its first page) becomes a `.md` file: its typed title as the heading with the date under it, its pages joined so
+that a line cut by a page break is read whole, and printouts or other pictures saved in `pictures/` and shown
+where they sit.
 
 ## Setup (WSL2 Ubuntu 24.04, no sudo)
 
