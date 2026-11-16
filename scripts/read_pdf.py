@@ -4,7 +4,7 @@ becomes a display formula ($$...$$). Page by page, typed text and pasted picture
 each note becomes a Markdown file: its typed title and date on top, its pages joined (lines cut by a page break
 read whole), pictures such as printouts saved beside it where they sit.
 
-    python scripts/read_pdf.py notes.pdf --pages 3 5-7 [--run run6] [--cpu] [--jsonl pages.jsonl]
+    python scripts/read_pdf.py notes.pdf --pages 3 5-7 [--run run7] [--beams 4] [--cpu] [--jsonl pages.jsonl]
     python scripts/read_pdf.py notes.pdf --markdown notes/ [--pages 3-6]
 """
 import argparse
@@ -35,7 +35,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("pdf", type=Path)
     ap.add_argument("--pages", nargs="*", default=[], help="page numbers or ranges like 5-7 (default: all)")
-    ap.add_argument("--run", default="run6", help="training run whose best checkpoint to use")
+    ap.add_argument("--run", default="run7", help="training run whose best checkpoint to use")
+    ap.add_argument("--beams", type=int, default=4, help="beam search width (1 = greedy, faster, less accurate)")
     ap.add_argument("--cpu", action="store_true", help="run on the CPU, e.g. while the GPU is training")
     ap.add_argument("--jsonl", type=Path, help="also write one {\"page\", \"text\"} row per page here")
     ap.add_argument("--markdown", type=Path, help="write one .md per note into this folder instead")
@@ -44,7 +45,7 @@ if __name__ == "__main__":
     device = "cpu" if args.cpu or not torch.cuda.is_available() else "cuda"
     if device == "cuda":
         cap_memory()
-    predict = load_predictor(args.run, device=device, lines=True)
+    predict = load_predictor(args.run, device=device, beams=args.beams, lines=True)
     pdf = pdfium.PdfDocument(args.pdf)
     pages = page_numbers(args.pages, len(pdf))
     if args.markdown:

@@ -85,12 +85,14 @@ python scripts/train.py --run run5 --init ~/im2tex-data/runs/run4/best.pt --step
     --repeat iam=30 mixed_lines=2 gnhk=30 --compile
 python scripts/train.py --run run6 --init ~/im2tex-data/runs/run5/best.pt --steps 50000 --lr 1e-4 --warmup 1000 \
     --repeat iam=30 mixed_lines=2 gnhk=30 ink_pages=50 --compile   # ink_pages: your own pages, if you made them
+python scripts/train.py --run run7 --init ~/im2tex-data/runs/run6/best.pt --steps 50000 --lr 1e-4 --warmup 1000 \
+    --repeat iam=30 mixed_lines=2 gnhk=30 ink_pages=50 --compile
 ```
 
-`predict.py` uses `run6` by default. `run2` to `run6` each train the previous run's best weights 50k more
+`predict.py` uses `run7` by default. `run2` to `run7` each train the previous run's best weights 50k more
 steps at a lower learning rate (~3.5 h each). HME100K was added to the shards before `run3`, the lines (IAM and
-mixed) before `run4`, which grows the vocabulary by the `<line>` token, GNHK's lines before `run5`, and your own
-pages before `run6`.
+mixed) before `run4`, which grows the vocabulary by the `<line>` token, GNHK's lines before `run5`, your own
+pages before `run6`, and more of them before `run7`.
 
 Resumable: rerunning the same `--run` continues from `runs/<run>/last.pt` (saved every 1000 steps).
 Logs go to `runs/<run>/log.jsonl`; `best.pt` is the checkpoint with the best validation exact match on formulas,
@@ -115,7 +117,7 @@ python scripts/export_im2latex.py --split test --n 1000
 python scripts/evaluate.py runs/pix2tex.jsonl      # writes runs/pix2tex.metrics.json
 python scripts/benchmark_throughput.py             # training samples/s on this GPU
 bash baselines/run_suite.sh im2tex-base ~/venvs/im2tex/bin/python   # one model on every test set, then the table
-python baselines/run_baseline.py im2tex-run6 ~/im2tex-data/iam/test runs/lines/iam_test.jsonl --line
+python baselines/run_baseline.py im2tex-run7 ~/im2tex-data/iam/test runs/lines/iam_test.jsonl --line
 python scripts/evaluate_pages.py runs/lines/iam_test.jsonl  # lines: character error rate, formulas found
 ```
 

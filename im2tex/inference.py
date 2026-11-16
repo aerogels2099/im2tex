@@ -21,7 +21,7 @@ def load_image(path) -> Image.Image:
     return im.convert("RGB")
 
 
-def load_predictor(run: str = "run6", device: str = "cuda", beams: int = 1, both_sizes: bool = True,
+def load_predictor(run: str = "run7", device: str = "cuda", beams: int = 1, both_sizes: bool = True,
                    lines: bool = False):
     """-> predict(list of PIL images) -> list of LaTeX strings, using <data>/runs/<run>/best.pt. With lines, each
     image is read as a line of words and math (im2tex/page.py format) instead of one formula.
