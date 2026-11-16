@@ -58,7 +58,9 @@ def render_ink(strokes, char_px: float = 28.0, width_px: float = 2.5, pad_px: in
 # Distances below are in units of h, the median stroke height on the page (about a letter's height).
 JOIN_X, BACK_X, JOIN_Y = 6.0, 3.0, 0.8  # the next stroke continues the piece within these to the right/left/up-down
 MERGE_X = 3.0  # pieces written at different times merge when they share a row with at most this gap
-FRAGMENT_STROKES, FRAGMENT_W, FRAGMENT_H, FRAGMENT_GAP = 6, 2.5, 3.0, 1.5  # limits, exponents added later
+FRAGMENT_STROKES, FRAGMENT_W, FRAGMENT_H, FRAGMENT_GAP = 6, 2.5, 4.0, 1.5  # limits (a fraction too), exponents added later
+BAR_W, BAR_FLAT, BAR_GAP = 1.5, 0.35, 1.2  # a fraction bar written apart: this wide, flat, its terms this close
+SHARE_X = 0.5  # a line written later goes before an earlier one below it when they share this much width
 
 
 @dataclass
@@ -117,27 +119,8 @@ def _union(a, b):
     return (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
 
 
-def find_lines(boxes) -> list[list[int]]:
-    """Group strokes, given as boxes in writing order, into lines of writing -> stroke indices per line, lines
-    in the order they were started (which is reading order for notes written top to bottom, a column at a time).
-
-    A stroke written right after the previous ones, close to them, continues their piece. Pieces written at
-    different times merge when they share a row with a small gap, or one sits inside the other; a few narrow
-    strokes just above or below a line (limits, exponents, a numerator added later) join it. Pieces far apart
-    on one row stay separate lines (a side note like u = x^2 next to an integral)."""
-    if not boxes:
-        return []
-    hs = np.array([b[3] - b[1] for b in boxes])
-    h = float(np.median(hs[hs > 1.0])) if (hs > 1.0).any() else 5.0
-    pieces = []  # [stroke indices, box]
-    for i, b in enumerate(boxes):
-        if pieces:
-            box = pieces[-1][1]
-            if (b[1] < box[3] + JOIN_Y * h and b[3] > box[1] - JOIN_Y * h
-                    and b[0] < box[2] + JOIN_X * h and b[2] > box[0] - BACK_X * h):
-                pieces[-1] = [pieces[-1][0] + [i], _union(box, b)]
-                continue
-        pieces.append([[i], b])
+def _merge_rows(pieces, h):
+    """Merge pieces that share a row with a small gap, or where one sits inside the other."""
     merged = True
     while merged:
         merged = False
@@ -156,6 +139,65 @@ def find_lines(boxes) -> list[list[int]]:
             if merged:
                 break
 
+
+def _join_bars(pieces, h) -> bool:
+    """A piece that is a lone flat stroke, a fraction bar written apart from its terms, takes the pieces right
+    above and below it whose middle is over it. Returns whether any bar did."""
+    for k, (idx, (x0, y0, x1, y1)) in enumerate(pieces):
+        if len(idx) != 1 or x1 - x0 < BAR_W * h or y1 - y0 > BAR_FLAT * (x1 - x0):
+            continue
+        terms = [m for m, (_, b) in enumerate(pieces) if m != k
+                 and x0 - 0.3 * h <= (b[0] + b[2]) / 2 <= x1 + 0.3 * h
+                 and (0 <= y0 - b[3] <= BAR_GAP * h or 0 <= b[1] - y1 <= BAR_GAP * h)]
+        if any(pieces[m][1][3] <= y0 for m in terms) and any(pieces[m][1][1] >= y1 for m in terms):
+            for m in sorted(terms, reverse=True):
+                pieces[k] = [pieces[k][0] + pieces[m][0], _union(pieces[k][1], pieces[m][1])]
+            for m in sorted(terms, reverse=True):
+                del pieces[m]
+            return True
+    return False
+
+
+def _reading_order(lines) -> list[list[int]]:
+    """Lines ([stroke indices, box]) in the order they were started, except that a line written later into space
+    left above earlier ones goes before the first of them that is below it and shares its width."""
+    placed = []
+    for idx, (x0, y0, x1, y1) in sorted(lines, key=lambda p: min(p[0])):
+        at = next((k for k, (_, b) in enumerate(placed)
+                   if b[1] >= y1 and min(x1, b[2]) - max(x0, b[0]) > SHARE_X * min(x1 - x0, b[2] - b[0])),
+                  len(placed))
+        placed.insert(at, (sorted(idx), (x0, y0, x1, y1)))
+    return [idx for idx, _ in placed]
+
+
+def find_lines(boxes) -> list[list[int]]:
+    """Group strokes, given as boxes in writing order, into lines of writing -> stroke indices per line, in
+    reading order: the order the lines were started (notes are written top to bottom, a column at a time), but
+    a line squeezed in later above earlier ones comes before them.
+
+    A stroke written right after the previous ones, close to them, continues their piece. Pieces written at
+    different times merge when they share a row with a small gap, or one sits inside the other; a fraction bar
+    written on its own joins its terms; a few narrow strokes just above or below a line (limits, exponents, a
+    numerator added later) join it. Pieces far apart on one row stay separate lines (a side note like u = x^2
+    next to an integral)."""
+    if not boxes:
+        return []
+    hs = np.array([b[3] - b[1] for b in boxes])
+    h = float(np.median(hs[hs > 1.0])) if (hs > 1.0).any() else 5.0
+    pieces = []  # [stroke indices, box]
+    for i, b in enumerate(boxes):
+        if pieces:
+            box = pieces[-1][1]
+            if (b[1] < box[3] + JOIN_Y * h and b[3] > box[1] - JOIN_Y * h
+                    and b[0] < box[2] + JOIN_X * h and b[2] > box[0] - BACK_X * h):
+                pieces[-1] = [pieces[-1][0] + [i], _union(box, b)]
+                continue
+        pieces.append([[i], b])
+    _merge_rows(pieces, h)
+    while _join_bars(pieces, h):
+        pass
+    _merge_rows(pieces, h)
+
     def fragment(p):
         x0, y0, x1, y1 = p[1]
         return len(p[0]) <= FRAGMENT_STROKES and x1 - x0 <= FRAGMENT_W * h and y1 - y0 <= FRAGMENT_H * h
@@ -172,7 +214,7 @@ def find_lines(boxes) -> list[list[int]]:
             host[0], host[1] = host[0] + f[0], _union(host[1], f[1])
         else:
             lines.append(f)
-    return sorted(sorted(p[0]) for p in lines)
+    return _reading_order(lines)
 
 
 def page_lines(page) -> list[list[PdfStroke]]:

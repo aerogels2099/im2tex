@@ -26,6 +26,31 @@ def test_a_limit_added_later_joins_its_line():
     assert lines == [[0, 1, 2, 3, 4, 9], [5, 6, 7, 8]]
 
 
+def test_a_fraction_written_later_as_a_limit_joins_its_line():
+    integral = [(10, 10, 14, 30)] + _letters(18, 15, 4)
+    below = _letters(10, 60, 4)
+    limit = [(15, -12, 18, -4), (14, -3, 19, -2), (15, -1, 18, 9)]  # 7 over 2, 3.5 letters tall, above the sign
+    lines = find_lines(integral + below + limit)
+    assert lines == [[0, 1, 2, 3, 4, 9, 10, 11], [5, 6, 7, 8]]
+
+
+def test_a_fraction_bar_written_apart_joins_its_terms():
+    top = _letters(10, 10, 4)
+    numerator, denominator = _letters(50, 40, 4), _letters(50, 51, 4)
+    bar = [(49, 48, 72, 49)]
+    elsewhere, further = _letters(10, 100, 4), _letters(10, 130, 4)  # written in between: no stroke follows another
+    lines = find_lines(top + numerator + elsewhere + bar + further + denominator)
+    assert lines == [[0, 1, 2, 3], [4, 5, 6, 7, 12, 17, 18, 19, 20], [8, 9, 10, 11], [13, 14, 15, 16]]
+
+
+def test_a_line_squeezed_in_later_is_read_where_it_is_written():
+    first, third = _letters(10, 10, 6), _letters(10, 60, 6)
+    second = _letters(10, 35, 6)  # written last, into the space left between them
+    corner = _letters(200, 10, 3)  # later still, at the top of another column: still read after
+    lines = find_lines(first + third + second + corner)
+    assert lines == [list(range(6)), list(range(12, 18)), list(range(6, 12)), list(range(18, 21))]
+
+
 def test_columns_and_a_far_side_note_stay_separate_in_writing_order():
     left = _letters(10, 10, 5) + _letters(10, 40, 5)
     right = _letters(200, 10, 5) + _letters(200, 40, 5)
