@@ -1,6 +1,6 @@
 """Print the LaTeX for equation images (one equation per image, cropped close) with a trained model.
 
-    python scripts/predict.py screenshot.png photo.jpg [--run run5] [--beams 4] [--cpu] [--one-size] [--line]
+    python scripts/predict.py screenshot.png photo.jpg [--run run6] [--beams 4] [--cpu] [--one-size] [--line]
 """
 import argparse
 from pathlib import Path
@@ -12,7 +12,7 @@ from im2tex.inference import load_image, load_predictor
 
 ap = argparse.ArgumentParser()
 ap.add_argument("images", nargs="+", type=Path)
-ap.add_argument("--run", default="run5", help="training run whose best checkpoint to use")
+ap.add_argument("--run", default="run6", help="training run whose best checkpoint to use")
 ap.add_argument("--beams", type=int, default=1, help="beam search width (1 = greedy)")
 ap.add_argument("--cpu", action="store_true", help="run on the CPU, e.g. while the GPU is training")
 ap.add_argument("--one-size", action="store_true",

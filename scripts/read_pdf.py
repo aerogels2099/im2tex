@@ -2,7 +2,7 @@
 line of writing is found from the strokes, drawn like the training data and read; a line that is all math
 becomes a display formula ($$...$$). Typed text and pasted pictures on a page are not read.
 
-    python scripts/read_pdf.py notes.pdf --pages 3 5-7 [--run run5] [--cpu] [--jsonl pages.jsonl]
+    python scripts/read_pdf.py notes.pdf --pages 3 5-7 [--run run6] [--cpu] [--jsonl pages.jsonl]
 """
 import argparse
 import json
@@ -44,7 +44,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("pdf", type=Path)
     ap.add_argument("--pages", nargs="*", default=[], help="page numbers or ranges like 5-7 (default: all)")
-    ap.add_argument("--run", default="run5", help="training run whose best checkpoint to use")
+    ap.add_argument("--run", default="run6", help="training run whose best checkpoint to use")
     ap.add_argument("--cpu", action="store_true", help="run on the CPU, e.g. while the GPU is training")
     ap.add_argument("--jsonl", type=Path, help="also write one {\"page\", \"text\"} row per page here")
     args = ap.parse_args()
