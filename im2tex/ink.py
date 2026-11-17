@@ -62,7 +62,9 @@ JOIN_X, BACK_X, JOIN_Y = 6.0, 3.0, 0.8  # the next stroke continues the piece wi
 MERGE_X = 3.0  # pieces written at different times merge when they share a row with at most this gap
 FRAGMENT_STROKES, FRAGMENT_W, FRAGMENT_H, FRAGMENT_GAP = 6, 2.5, 4.0, 1.5  # limits (a fraction too), exponents added later
 BAR_W, BAR_FLAT, BAR_GAP = 1.5, 0.35, 1.2  # a fraction bar written apart: this wide, flat, its terms this close
+FRAC_W, FRAC_GAP = 2.0, 1.0  # a long fraction bar written with its numerator: this wide, its terms' strokes this close
 SHARE_X = 0.5  # a line written later goes before an earlier one below it when they share this much width
+COLUMN_W = 4.0  # lines this wide beside a line's own column make a column of work of their own (not a label)
 # Tables (a truth table): a head, a long flat rule under it, then columns of cells; lines drawn across rows are
 # marks, not cells.
 RULE_W, RULE_FLAT = 6.0, 0.15  # a rule: this wide at least, drawn in flat pieces (height at most this of width)
@@ -167,16 +169,77 @@ def _join_bars(pieces, h) -> bool:
     return False
 
 
+def _join_fractions(pieces, boxes, h, points=None):
+    """The pieces holding a long fraction bar and the strokes right above and right below it (its numerator and
+    denominator, within its width) merge: a big fraction written in pieces is read as one. With the strokes'
+    outline points, a bar that slopes is followed where it runs; without them, only a level one counts."""
+    where = {i: k for k, (idx, _) in enumerate(pieces) for i in idx}
+    root = list(range(len(pieces)))
+
+    def find(k):
+        while root[k] != k:
+            k = root[k]
+        return k
+
+    for i, (x0, y0, x1, y1) in enumerate(boxes):
+        if i not in where or x1 - x0 < FRAC_W * h or y1 - y0 > BAR_FLAT * (x1 - x0) or points is None and y1 - y0 > h:
+            continue
+        pts = points[i] if points is not None else np.array([[x0, y0], [x0, y1]])
+        over = [j for j, b in enumerate(boxes) if j != i and j in where and x0 - 0.3 * h <= (b[0] + b[2]) / 2 <= x1 + 0.3 * h]
+        at = {}  # the bar's top and bottom edge under each of them
+        for j in over:
+            ys = pts[np.argsort(np.abs(pts[:, 0] - (boxes[j][0] + boxes[j][2]) / 2))[:8], 1]
+            at[j] = (float(ys.min()), float(ys.max()))
+        up = [j for j in over if at[j][0] - FRAC_GAP * h <= boxes[j][3] <= sum(at[j]) / 2]
+        down = [j for j in over if sum(at[j]) / 2 <= boxes[j][1] <= at[j][1] + FRAC_GAP * h]
+        if up and down:
+            for j in up + down:
+                root[find(where[j])] = find(where[i])
+    groups = {}
+    for k, p in enumerate(pieces):
+        groups.setdefault(find(k), []).append(p)
+    pieces[:] = [[[i for p in ps for i in p[0]], (min(p[1][0] for p in ps), min(p[1][1] for p in ps),
+                                                   max(p[1][2] for p in ps), max(p[1][3] for p in ps))]
+                 for ps in groups.values()]
+
+
+def _shares(a, b) -> bool:
+    return min(a[2], b[2]) - max(a[0], b[0]) > SHARE_X * min(a[2] - a[0], b[2] - b[0])
+
+
 def _reading_order(lines) -> list[list[int]]:
     """Lines ([stroke indices, box]) in the order they were started, except that a line written later into space
     left above earlier ones goes before the first of them that is below it and shares its width."""
     placed = []
-    for idx, (x0, y0, x1, y1) in sorted(lines, key=lambda p: min(p[0])):
-        at = next((k for k, (_, b) in enumerate(placed)
-                   if b[1] >= y1 and min(x1, b[2]) - max(x0, b[0]) > SHARE_X * min(x1 - x0, b[2] - b[0])),
-                  len(placed))
-        placed.insert(at, (sorted(idx), (x0, y0, x1, y1)))
+    for idx, box in sorted(lines, key=lambda p: min(p[0])):
+        at = next((k for k, (_, b) in enumerate(placed) if b[1] >= box[3] and _shares(box, b)), len(placed))
+        placed.insert(at, (sorted(idx), box))
     return [idx for idx, _ in placed]
+
+
+def column_order(boxes, h, movable) -> list[int]:
+    """Lines' boxes in reading order -> their indices in a new order, where a line in `movable` (one that goes on
+    a chain of steps: it starts with = or ≡) moves up to right after the line above it in its column (the nearest
+    above that shares its width) when the lines between are all a column beside it (at least COLUMN_W wide,
+    clear of its column's width) that had reached its height: the writing went back to an earlier column of
+    work written side by side, and each column is read on its own."""
+    order = list(range(len(boxes)))
+    for _ in range(len(order) ** 2):
+        for k, i in enumerate(order):
+            box = boxes[i]
+            above = [m for m in range(k) if _shares(boxes[order[m]], box)
+                     and boxes[order[m]][1] + boxes[order[m]][3] < box[1] + box[3]]
+            if i not in movable or not above or (p := max(above, key=lambda m: boxes[order[m]][3])) == k - 1:
+                continue
+            x0, x1 = min(box[0], boxes[order[p]][0]), max(box[2], boxes[order[p]][2])
+            between = [boxes[j] for j in order[p + 1:k]]
+            if all(b[2] - b[0] >= COLUMN_W * h and (b[2] <= x0 or b[0] >= x1) for b in between) and any(
+                    min(b[3], box[3]) > max(b[1], box[1]) for b in between):
+                order.insert(p + 1, order.pop(k))
+                break
+        else:
+            break
+    return order
 
 
 def _letter_height(boxes) -> float:
@@ -358,21 +421,27 @@ def find_tables(strokes: list[PdfStroke]) -> list[tuple[list[int], list[list[lis
     return tables
 
 
-def find_lines(boxes, fixed=()) -> list[list[int]]:
+def find_lines(boxes, fixed=(), points=None) -> list[list[int]]:
     """Group strokes, given as boxes in writing order, into lines of writing -> stroke indices per line, in
     reading order: the order the lines were started (notes are written top to bottom, a column at a time), but
     a line squeezed in later above earlier ones comes before them. Groups of strokes in `fixed` (tables) are
-    lines as they are.
+    lines as they are; `points`, each stroke's outline points, if given, let a sloping fraction bar count.
 
     A stroke written right after the previous ones, close to them, continues their piece. Pieces written at
     different times merge when they share a row with a small gap, or one sits inside the other; a fraction bar
     written on its own joins its terms; a few narrow strokes just above or below a line (limits, exponents, a
-    numerator added later) join it. Pieces far apart on one row stay separate lines (a side note like u = x^2
-    next to an integral)."""
+    numerator added later) join it; an integral sign left on its own with its limits (its upper limit, written
+    above it, broke the piece off) joins the line right of it on its row. Pieces far apart on one row stay
+    separate lines (a side note like u = x^2 next to an integral)."""
     if not boxes:
         return []
     h = _letter_height(boxes)
     skip = {i for g in fixed for i in g}
+
+    def fragment(p):
+        x0, y0, x1, y1 = p[1]
+        return len(p[0]) <= FRAGMENT_STROKES and x1 - x0 <= FRAGMENT_W * h and y1 - y0 <= FRAGMENT_H * h
+
     pieces = []  # [stroke indices, box]
     for i, b in enumerate(boxes):
         if i in skip:
@@ -384,14 +453,11 @@ def find_lines(boxes, fixed=()) -> list[list[int]]:
                 pieces[-1] = [pieces[-1][0] + [i], _union(box, b)]
                 continue
         pieces.append([[i], b])
+    _join_fractions(pieces, boxes, h, points)
     _merge_rows(pieces, h)
     while _join_bars(pieces, h):
         pass
     _merge_rows(pieces, h)
-
-    def fragment(p):
-        x0, y0, x1, y1 = p[1]
-        return len(p[0]) <= FRAGMENT_STROKES and x1 - x0 <= FRAGMENT_W * h and y1 - y0 <= FRAGMENT_H * h
 
     def gaps(f, p):
         (fx0, fy0, fx1, fy1), (x0, y0, x1, y1) = f[1], p[1]
@@ -405,6 +471,15 @@ def find_lines(boxes, fixed=()) -> list[list[int]]:
             host[0], host[1] = host[0] + f[0], _union(host[1], f[1])
         else:
             lines.append(f)
+    for f in [p for p in lines if len(p[0]) <= 8 and p[1][2] - p[1][0] <= 3 * h and any(
+            boxes[i][3] - boxes[i][1] >= 2.5 * h and boxes[i][2] - boxes[i][0] <= 0.35 * (boxes[i][3] - boxes[i][1])
+            for i in p[0])]:  # an integral sign and its limits, alone
+        right = [p for p in lines if p is not f and -0.5 * h <= p[1][0] - f[1][2] <= JOIN_X * h
+                 and min(p[1][3], f[1][3]) - max(p[1][1], f[1][1]) >= 0.5 * (p[1][3] - p[1][1])]
+        if right:
+            host = min(right, key=lambda p: p[1][0])
+            host[0], host[1] = host[0] + f[0], _union(host[1], f[1])
+            lines = [p for p in lines if p is not f]
     for g in fixed:
         lines.append([list(g), (min(boxes[i][0] for i in g), min(boxes[i][1] for i in g),
                                 max(boxes[i][2] for i in g), max(boxes[i][3] for i in g))])
@@ -475,7 +550,7 @@ def ink_lines(strokes: list[PdfStroke]) -> list[list[PdfStroke]]:
     boxes = [s.box for s in strokes]
     tables = {tuple(idx): rows for idx, rows in find_tables(strokes)}
     out = []
-    for line in find_lines(boxes, list(tables)):
+    for line in find_lines(boxes, list(tables), [np.concatenate(s.outlines) for s in strokes]):
         rows = tables.get(tuple(line))
         picked = [strokes[i] for i in line]
         out.append(Table(picked, [[[strokes[i] for i in c] for c in row] for row in rows]) if rows else picked)

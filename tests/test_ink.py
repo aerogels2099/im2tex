@@ -2,8 +2,8 @@ import numpy as np
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 
-from im2tex.ink import (PdfStroke, Table, find_drawings, find_lines, find_tables, ink_lines, page_lines, pdf_strokes,
-                        render_ink)
+from im2tex.ink import (PdfStroke, Table, column_order, find_drawings, find_lines, find_tables, ink_lines, page_lines,
+                        pdf_strokes, render_ink)
 
 
 def _letters(x, y, n, h=6.0, w=4.0, gap=1.5):
@@ -58,6 +58,30 @@ def test_columns_and_a_far_side_note_stay_separate_in_writing_order():
     note = _letters(120, 40, 3)  # later, on the row of the second lines, far from both
     lines = find_lines(left + right + note)
     assert lines == [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9], [10, 11, 12, 13, 14], [15, 16, 17, 18, 19], [20, 21, 22]]
+
+
+def test_a_step_written_back_in_an_earlier_column_is_read_with_it():
+    left = [(10, 10, 40, 16), (10, 20, 40, 26)]
+    right = [(60, 10, 90, 16), (60, 20, 90, 26), (60, 30, 90, 36)]
+    back = (10, 31, 40, 37)  # then "= ..." under the left column, level with the right one's last line
+    boxes = left + right + [back]
+    assert column_order(boxes, 6.0, {3, 4, 5}) == [0, 1, 5, 2, 3, 4]
+    assert column_order(boxes, 6.0, {3, 4}) == list(range(6))  # a line that doesn't go on a chain stays
+    assert column_order(left + right[:2] + [(10, 40, 40, 46)], 6.0, {4}) == list(range(5))  # below the other column
+
+
+def test_an_integral_its_upper_limit_broke_off_joins_its_integrand():
+    sign = [(10, 5, 11, 22), (11.5, 20, 12.5, 22.5)]  # the integral sign and its lower limit
+    upper = [(11, 0, 13, 1.5)]  # its upper limit, written above it afterwards
+    integrand = _letters(27, 11, 4, h=4.0, w=3.0, gap=1.0)
+    assert find_lines(sign + upper + integrand) == [list(range(7))]
+
+
+def test_a_fraction_written_with_its_bar_then_left_joins_its_denominator():
+    numerator = _letters(10, 10, 3, h=4.0, w=3.0, gap=1.0) + [(9, 15, 22, 15.5)]  # written with its bar
+    elsewhere = _letters(60, 10, 3, h=4.0, w=3.0, gap=1.0)  # then something on the right
+    denominator = _letters(11, 16.5, 3, h=4.0, w=3.0, gap=1.0)  # then the denominator
+    assert find_lines(numerator + elsewhere + denominator) == [[0, 1, 2, 3, 7, 8, 9], [4, 5, 6]]
 
 
 def _box_stroke(x0, y0, x1, y1):

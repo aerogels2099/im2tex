@@ -12,7 +12,8 @@ import numpy as np
 import pypdfium2.raw as pdfium_c
 from PIL import Image
 
-from im2tex.ink import PdfStroke, Table, find_drawings, find_tables, ink_lines, page_lines, pdf_strokes, render_ink
+from im2tex.ink import (PdfStroke, Table, column_order, find_drawings, find_tables, ink_lines, page_lines, pdf_strokes,
+                        render_ink)
 from im2tex.page import PageError, split_page
 
 PAGE_SHIFT = 734.0  # pt from a page's top to the next one's in OneNote's export, when no shared strokes tell
@@ -91,11 +92,23 @@ def markdown_table(rows: list[list[str]]) -> str:
     return "\n".join(lines[:1] + ["|" + "---|" * len(rows[0])] + lines[1:])
 
 
+def _goes_on(text: str) -> bool:
+    """A reading that starts with = or another relation: the next step of a chain."""
+    try:
+        parts = split_page(text)
+    except PageError:
+        return False
+    tokens = parts[0][1].split() if parts and parts[0][0] != "text" else []
+    return bool(tokens) and tokens[0] in RELATIONS
+
+
 def read_lines(lines: list[list[PdfStroke]], predict) -> list[Line]:
-    """Lines of strokes -> their readings, one at a time (padding in a batch changes readings), side notes joined.
-    A table is read a cell at a time into a Markdown table: in a truth table (most cells read T or F) each cell
-    under the head is whichever of T and F the model finds likelier, a lone letter being easy to misread. A
-    problem label its first title starts with ("1. m") goes on a line before it."""
+    """Lines of strokes -> their readings, one at a time (padding in a batch changes readings), in reading order
+    with columns of work side by side read one at a time (ink.column_order: a step written later under an
+    earlier column joins it), side notes joined. A table is read a cell at a time into a Markdown table: in a
+    truth table (most cells read T or F) each cell under the head is whichever of T and F the model finds
+    likelier, a lone letter being easy to misread. A problem label its first title starts with ("1. m") goes on
+    a line before it."""
     out = []
     for strokes in lines:
         box = _union([s.box for s in strokes])
@@ -112,6 +125,9 @@ def read_lines(lines: list[list[PdfStroke]], predict) -> list[Line]:
             out.append(Line(markdown_table(rows), box))
         else:
             out.append(Line(as_display(_read(strokes, predict)), box))
+    heights = [s.box[3] - s.box[1] for strokes in lines for s in strokes]
+    h = float(np.median([x for x in heights if x > 1.0] or [5.0]))  # the letter height, as ink measures it
+    out = [out[k] for k in column_order([l.box for l in out], h, {k for k, l in enumerate(out) if _goes_on(l.text)})]
     return join_side_notes(out)
 
 
