@@ -12,7 +12,7 @@ import numpy as np
 import pypdfium2.raw as pdfium_c
 from PIL import Image
 
-from im2tex.ink import PdfStroke, find_lines, page_lines, pdf_strokes, render_ink
+from im2tex.ink import PdfStroke, Table, ink_lines, page_lines, pdf_strokes, render_ink
 from im2tex.page import PageError, split_page
 
 PAGE_SHIFT = 734.0  # pt from a page's top to the next one's in OneNote's export, when no shared strokes tell
@@ -64,7 +64,7 @@ def join_side_notes(lines: list[Line]) -> list[Line]:
             continue
         x0, y0, _, y1 = note.box
         hosts = [(min(y1, l.box[3]) - max(y0, l.box[1]), m) for m, l in enumerate(out)
-                 if m != k and l.box[2] <= x0 + 1.0 and not l.text.lstrip().startswith("(")]
+                 if m != k and l.box[2] <= x0 + 1.0 and not l.text.lstrip().startswith(("(", "|"))]
         hosts = [(overlap, m) for overlap, m in hosts if overlap > 0.25 * (y1 - y0)]
         if not hosts:
             continue
@@ -77,12 +77,41 @@ def join_side_notes(lines: list[Line]) -> list[Line]:
     return out
 
 
+def _image(strokes) -> Image.Image:
+    return Image.fromarray(render_ink([q for s in strokes for q in s.outlines], filled=True)).convert("RGB")
+
+
+def _read(strokes, predict) -> str:
+    return predict([_image(strokes)])[0].strip()
+
+
+def markdown_table(rows: list[list[str]]) -> str:
+    """Rows of cell readings (the first the head) -> a Markdown table."""
+    lines = ["| " + " | ".join(c.replace("|", "\\|") for c in row) + " |" for row in rows]
+    return "\n".join(lines[:1] + ["|" + "---|" * len(rows[0])] + lines[1:])
+
+
 def read_lines(lines: list[list[PdfStroke]], predict) -> list[Line]:
-    """Lines of strokes -> their readings, one at a time (padding in a batch changes readings), side notes joined."""
+    """Lines of strokes -> their readings, one at a time (padding in a batch changes readings), side notes joined.
+    A table is read a cell at a time into a Markdown table: in a truth table (most cells read T or F) each cell
+    under the head is whichever of T and F the model finds likelier, a lone letter being easy to misread. A
+    problem label its first title starts with ("1. m") goes on a line before it."""
     out = []
     for strokes in lines:
-        im = Image.fromarray(render_ink([q for s in strokes for q in s.outlines], filled=True)).convert("RGB")
-        out.append(Line(as_display(predict([im])[0]), _union([s.box for s in strokes])))
+        box = _union([s.box for s in strokes])
+        if isinstance(strokes, Table):
+            rows = [[_read(c, predict) if c else "" for c in row] for row in strokes.rows]
+            body = [(r, j) for r in range(1, len(rows)) for j, c in enumerate(rows[r]) if strokes.rows[r][j]]
+            if hasattr(predict, "choose") and sum(rows[r][j].strip("$ ") in ("T", "F") for r, j in body) >= 0.4 * len(body):
+                for (r, j), v in zip(body, predict.choose([_image(strokes.rows[r][j]) for r, j in body], ["T", "F"])):
+                    rows[r][j] = v
+            m = LABEL.match(rows[0][0])
+            if m and rows[0][0][m.end():m.end() + 1] in (" ", ""):
+                out.append(Line(m.group(), box))
+                rows[0][0] = rows[0][0][m.end():].strip()
+            out.append(Line(markdown_table(rows), box))
+        else:
+            out.append(Line(as_display(_read(strokes, predict)), box))
     return join_side_notes(out)
 
 
@@ -171,12 +200,12 @@ def note_lines(pages: list[list[PdfStroke]]) -> tuple[list[list[PdfStroke]], lis
             offset += shift
         offsets.append(offset)
         kept = [_shifted(s, offset) for i, s in enumerate(strokes) if i not in copies]
-        lines = [[kept[i] for i in line] for line in find_lines([s.box for s in kept])]
+        lines = ink_lines(kept)
         old = [m for m in above if any(_rows_meet(out[m], l) for l in lines)]
         new = [l for l in lines if any(_rows_meet(out[m], l) for m in above)]
         if old:
             pooled = [s for m in old for s in out[m]] + [s for l in new for s in l]
-            found = [[pooled[i] for i in line] for line in find_lines([s.box for s in pooled])]
+            found = ink_lines(pooled)
             out = out[:old[0]] + found + [l for m, l in enumerate(out[old[0]:], old[0]) if m not in old]
             lines = [l for l in lines if not any(l is n for n in new)]
         above = list(range(len(out), len(out) + len(lines)))
@@ -409,6 +438,10 @@ def to_markdown(title: str | None, date: str | None, lines: list[str]) -> str:
             steps.clear()
 
     for text in lines:
+        if text.startswith("|"):  # a table, already Markdown
+            flush()
+            blocks.append(_inline(text))
+            continue
         text = _label_out(text)
         kind, parts = _kind(text)
         if kind == "display" and steps and parts[1] and _align_at(parts[0]) is None:

@@ -4,9 +4,9 @@ splits for training, in the common layout (train / validation: images/ + refs.js
 Each page's lines are found from its strokes (im2tex.ink.page_lines), read with a trained run, and matched in
 order to the transcription's lines by dynamic programming on edit distance; groups are allowed, so a line found
 in two pieces doesn't shift the rest. A found line matched to exactly one written line becomes a row, labeled in
-the line format (words, and $ latex $ with the math normalized). Skipped: [figure] / [table] lines, and pairs
-whose reading is too far from the label to be the same line. 10% of the pages (by a hash of the page number) are
-the validation split, whole pages.
+the line format (words, and $ latex $ with the math normalized). Skipped: [figure] / [table] lines and table
+rows (| a | b |), and pairs whose reading is too far from the label to be the same line. 10% of the pages (by a
+hash of the page number) are the validation split, whole pages.
     python scripts/prepare_ink_pages.py notes.pdf <transcriptions dir> <out dir> [--run run5]
 Transcriptions: one file per page in the page format (im2tex/page.py), named ...p<page number>.txt.
 """
@@ -20,7 +20,7 @@ import pypdfium2 as pdfium
 from PIL import Image
 from rapidfuzz.distance import Levenshtein
 
-from im2tex.ink import page_lines, render_ink
+from im2tex.ink import Table, page_lines, render_ink
 from im2tex.inference import load_predictor
 from im2tex.normalize import normalize
 from im2tex.page import normalize_page, split_page
@@ -91,13 +91,13 @@ if __name__ == "__main__":
         n = int(re.search(r"p(\d+)$", t.stem).group(1))
         split = "validation" if held_out(n) else "train"
         labels = [l for l in t.read_text(encoding="utf-8").splitlines() if l.strip()]
-        lines = page_lines(pdf[n - 1])
-        images = [Image.fromarray(render_ink([o for s in line for o in s.outlines], filled=True)) for line in lines]
+        lines = [line for line in page_lines(pdf[n - 1]) if not isinstance(line, Table)]  # tables aren't lines
+        images =[Image.fromarray(render_ink([o for s in line for o in s.outlines], filled=True)) for line in lines]
         reads = [predict([im.convert("RGB")])[0] for im in images]
         kept = 0
         for i, j in match(reads, labels):
-            if labels[j].strip() in ("[figure]", "[table]"):
-                continue
+            if labels[j].strip() in ("[figure]", "[table]") or labels[j].lstrip().startswith("|"):
+                continue  # a figure, or a table (written out as Markdown rows): not a line of writing
             label = line_label(labels[j])
             if Levenshtein.normalized_distance(comparable(reads[i]), comparable(labels[j])) > MAX_CER:
                 continue

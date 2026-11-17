@@ -6,8 +6,8 @@ import pypdfium2.raw as pdfium_c
 from PIL import Image
 
 from im2tex.ink import PdfStroke
-from im2tex.pdf_notes import (Line, group_notes, join_side_notes, latex, note_lines, read_note, to_markdown,
-                              typed_lines)
+from im2tex.pdf_notes import (Line, group_notes, join_side_notes, latex, markdown_table, note_lines, read_note,
+                              to_markdown, typed_lines)
 
 
 def test_a_note_in_parentheses_joins_the_line_on_its_row():
@@ -76,6 +76,13 @@ def test_a_proofs_numbered_steps_are_one_table():
         "# T\n\n**44)**\n\n$$\n\\begin{aligned}\n\\text{1.}\\quad & r \\vee s && \\text{(premise b)} \\\\\n"
         "\\text{2.}\\quad & \\sim q \\vee s && \\text{(premise d)} \\\\\n& \\therefore s && \\text{(step 1)}\n"
         "\\end{aligned}\n$$\n\n$$\nx = 1\n$$\n")
+
+
+def test_a_table_is_written_as_a_markdown_table():
+    table = markdown_table([["3. $ p $", "$ p \\rightarrow q $"], ["T", "F"]])
+    assert table == "| 3. $ p $ | $ p \\rightarrow q $ |\n|---|---|\n| T | F |"
+    assert to_markdown("T", None, ["3.", markdown_table([["$ p $", "$ p \\rightarrow q $"], ["T", "F"]]), "so p"]) == (
+        "# T\n\n**3.**\n\n| $p$ | $p \\rightarrow q$ |\n|---|---|\n| T | F |\n\nso p\n")
 
 
 def _stroke(x, y, s):

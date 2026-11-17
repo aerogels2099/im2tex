@@ -89,4 +89,10 @@ def load_predictor(run: str = "run7", device: str = "cuda", beams: int = 1, both
                 out[i] = alt
         return out
 
+    def choose(images, options):
+        """-> for each image, the one of the given readings the model finds likeliest (e.g. "T" or "F")."""
+        return [max(options, key=lambda o: mean_logp(x, o)) for x in
+                (preprocess(im, args["max_h"], args["max_w"]) for im in images)]
+
+    predict.choose = choose
     return predict
