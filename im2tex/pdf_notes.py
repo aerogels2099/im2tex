@@ -12,7 +12,7 @@ import numpy as np
 import pypdfium2.raw as pdfium_c
 from PIL import Image
 
-from im2tex.ink import PdfStroke, Table, ink_lines, page_lines, pdf_strokes, render_ink
+from im2tex.ink import PdfStroke, Table, find_drawings, find_tables, ink_lines, page_lines, pdf_strokes, render_ink
 from im2tex.page import PageError, split_page
 
 PAGE_SHIFT = 734.0  # pt from a page's top to the next one's in OneNote's export, when no shared strokes tell
@@ -475,10 +475,24 @@ def to_markdown(title: str | None, date: str | None, lines: list[str]) -> str:
 
 def read_note(pdf, pages: list[int], predict, assets: Path, link: str) -> tuple[str | None, str]:
     """A note's pages -> (title, Markdown). Printouts and other pictures are saved to `assets` as 1.png, 2.png, ...
-    and linked as `link`/1.png where they sit; an attached file (its icon, its name typed under it) as a line
-    naming it, the file itself not being in the PDF."""
-    ink, offsets = note_lines([pdf_strokes(pdf[n - 1]) for n in pages])
+    and linked as `link`/1.png where they sit, and so are drawings (find_drawings) with a picture they are drawn
+    over; an attached file (its icon, its name typed under it) as a line naming it, the file not being in the PDF."""
+    strokes, drawings = [], []  # each page's strokes that are writing; its drawings' boxes
+    for n in pages:
+        page_strokes = pdf_strokes(pdf[n - 1])
+        found = find_drawings(page_strokes, {i for idx, _ in find_tables(page_strokes) for i in idx})
+        drawn = {i for idx, _ in found for i in idx}
+        strokes.append([s for i, s in enumerate(page_strokes) if i not in drawn])
+        drawings.append([box for _, box in found])
+    ink, offsets = note_lines(strokes)
     placed, head = [], []  # pictures and typed lines, placed by position; the first page's top typed lines
+
+    def save(im, box, dy):
+        assets.mkdir(parents=True, exist_ok=True)
+        name = f"{sum(t.startswith('![') for t, _ in placed) + 1}.png"
+        im.save(assets / name)
+        placed.append((f"![]({link}/{name})", (box[0], box[1] + dy, box[2], box[3] + dy)))
+
     for k, (n, dy) in enumerate(zip(pages, offsets)):
         page = pdf[n - 1]
         icons = []
@@ -490,10 +504,14 @@ def read_note(pdf, pages: list[int], predict, assets: Path, link: str) -> tuple[
             if right - left < ICON and top - bottom < ICON:
                 icons.append(box)
                 continue
-            assets.mkdir(parents=True, exist_ok=True)
-            name = f"{sum(t.startswith('![') for t, _ in placed) + 1}.png"
-            obj.get_bitmap(render=True).to_pil().save(assets / name)
-            placed.append((f"![]({link}/{name})", (box[0], box[1] + dy, box[2], box[3] + dy)))
+            under = [j for j, d in enumerate(drawings[k]) if d[0] < box[2] and box[0] < d[2] and d[1] < box[3] and box[1] < d[3]]
+            if under:  # drawn over: saved with its drawing
+                drawings[k][under[0]] = _union([drawings[k][under[0]], box])
+            else:
+                save(obj.get_bitmap(render=True).to_pil(), box, dy)
+        for box in drawings[k]:
+            x0, y0, x1, y1 = box[0] - 4, box[1] - 4, box[2] + 4, box[3] + 4
+            save(page.render(scale=2).to_pil().crop((int(2 * x0), int(2 * y0), int(2 * x1), int(2 * y1))), box, dy)
         names = [[] for _ in icons]
         for t in typed_lines(page):
             x0, y0, x1, _ = t.box

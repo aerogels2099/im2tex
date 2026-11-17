@@ -69,6 +69,7 @@ RULE_W, RULE_FLAT = 6.0, 0.15  # a rule: this wide at least, drawn in flat piece
 HEAD_H, FIRST_ROW, ROW_GAP = 3.5, 2.0, 1.2  # the head's bottom within this above the rule, the first row's top
 #                                             within this below it; the table ends at an empty gap this tall
 COL_GAP, HEAD_GAP = 0.5, 0.6  # strokes this close across share a column; the head's titles are this far apart
+DRAW_W = 4.0  # a drawing: level and upright lines at least this long crossing (writing has none)
 
 
 @dataclass
@@ -408,6 +409,55 @@ def find_lines(boxes, fixed=()) -> list[list[int]]:
         lines.append([list(g), (min(boxes[i][0] for i in g), min(boxes[i][1] for i in g),
                                 max(boxes[i][2] for i in g), max(boxes[i][3] for i in g))])
     return _reading_order(lines)
+
+
+def find_drawings(strokes: list[PdfStroke], skip=()) -> list[tuple[list[int], tuple]]:
+    """Drawings among strokes (a sketch of a solid, boxes drawn over a graph), strokes in `skip` (tables) aside:
+    long level lines crossing long upright ones, with every stroke inside the box around them -> for each, its
+    stroke indices and that box. Writing has no such crossings: an integral sign, a bracket or a fraction bar
+    is long one way only, and they meet at most at their ends."""
+    boxes = [s.box for s in strokes]
+    if not boxes:
+        return []
+    h = _letter_height(boxes)
+    w, t = (lambda b: b[2] - b[0]), (lambda b: b[3] - b[1])
+    level = [i for i, b in enumerate(boxes) if i not in skip and w(b) >= DRAW_W * h and t(b) <= 0.3 * w(b)]
+    upright = [i for i, b in enumerate(boxes) if i not in skip and t(b) >= DRAW_W * h and w(b) <= 0.3 * t(b)]
+    regions = []
+    for a in level:
+        for c in upright:
+            (ax0, ay0, ax1, ay1), (cx0, cy0, cx1, cy1) = boxes[a], boxes[c]
+            if ax0 + 0.5 * h < (cx0 + cx1) / 2 < ax1 - 0.5 * h and cy0 + 0.5 * h < (ay0 + ay1) / 2 < cy1 - 0.5 * h:
+                regions.append(_union(boxes[a], boxes[c]))
+    merged = True
+    while merged:  # crossings whose boxes meet are one drawing
+        merged = False
+        for k in range(len(regions)):
+            for m in range(k + 1, len(regions)):
+                a, b = regions[k], regions[m]
+                if a[0] <= b[2] + h and b[0] <= a[2] + h and a[1] <= b[3] + h and b[1] <= a[3] + h:
+                    regions[k] = _union(a, b)
+                    del regions[m]
+                    merged = True
+                    break
+            if merged:
+                break
+    out, taken = [], set(skip)
+    for region in regions:  # grows by the lines that touch it (at least 2h long) and whatever lies inside
+        idx, grown = [], True
+        while grown:
+            x0, y0, x1, y1 = region
+            more = [i for i, b in enumerate(boxes) if i not in taken and (
+                x0 - 0.5 * h <= (b[0] + b[2]) / 2 <= x1 + 0.5 * h and y0 - 0.5 * h <= (b[1] + b[3]) / 2 <= y1 + 0.5 * h
+                or max(w(b), t(b)) >= 2 * h and b[0] <= x1 and x0 <= b[2] and b[1] <= y1 and y0 <= b[3])]
+            grown = bool(more)
+            for i in more:
+                region = _union(region, boxes[i])
+            idx += more
+            taken.update(more)
+        if idx:
+            out.append((sorted(idx), region))
+    return out
 
 
 class Table(list):

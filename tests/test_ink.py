@@ -2,7 +2,8 @@ import numpy as np
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 
-from im2tex.ink import PdfStroke, Table, find_lines, find_tables, ink_lines, page_lines, pdf_strokes, render_ink
+from im2tex.ink import (PdfStroke, Table, find_drawings, find_lines, find_tables, ink_lines, page_lines, pdf_strokes,
+                        render_ink)
 
 
 def _letters(x, y, n, h=6.0, w=4.0, gap=1.5):
@@ -75,6 +76,15 @@ def test_a_truth_table_is_found_and_read_down_its_columns():
     assert idx == list(range(13))
     lines = ink_lines(strokes)
     assert isinstance(lines[0], Table) and lines[0].rows[1][2] == [cells[2]] and lines[1] == [words]
+
+
+def test_lines_crossing_are_a_drawing_and_writing_is_not():
+    letters = [_box_stroke(x, 50, x + 3, 54) for x in (10, 15, 20, 25)]
+    lines = [_box_stroke(10, 20, 40, 20.5), _box_stroke(20, 5, 20.5, 35)]  # a level line across an upright one
+    label = _box_stroke(30, 10, 33, 14)
+    bar, integral = _box_stroke(60, 30, 80, 30.4), _box_stroke(58, 22, 59, 40)  # meeting at an end: writing
+    [(idx, box)] = find_drawings(letters + lines + [label, bar, integral])
+    assert idx == [4, 5, 6] and box == (10, 5, 40, 35)
 
 
 def _pdf_with_squares(squares):

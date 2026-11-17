@@ -12,10 +12,13 @@ python scripts/read_pdf.py notes.pdf --markdown notes/  # each note as a Markdow
 
 `read_pdf.py` finds each line of writing from the pen strokes, in the order they were written (a line squeezed
 in later above others comes before them), and prints the page as text with `$...$`, a line that is all math as
-`$$...$$`. Typed text and pasted pictures are not read. With `--markdown`, each note (OneNote prints a date on
-its first page) becomes a `.md` file: its typed title as the heading with the date under it, its pages joined so
-that a line cut by a page break is read whole, and printouts or other pictures saved in `pictures/` and shown
-where they sit. Formulas are displayed centered, the steps of one solution in one block aligned at their `=`.
+`$$...$$`. Typed text and pasted pictures are not read. A table (titles over a rule, columns of cells; a truth
+table or a grid) is read a cell at a time into a Markdown table. With `--markdown`, each note (OneNote prints a
+date on its first page) becomes a `.md` file: its typed title as the heading with the date under it, its pages
+joined so that a line cut by a page break is read whole, and printouts, other pictures and drawings saved in
+`pictures/` and shown where they sit (an attached file is named, as the PDF doesn't hold it). Formulas are
+displayed centered, the steps of one solution in one block aligned at their `=`, problem numbers in bold, a
+proof's numbered steps and reasons in one table.
 
 ## Setup (WSL2 Ubuntu 24.04, no sudo)
 
