@@ -402,11 +402,42 @@ def _table_under(strokes, rule, marks, h, taken):
     return sorted(used), rows
 
 
+def _two_row_tables(boxes, h, taken) -> list[tuple[list[int], list[list[list[int]]]]]:
+    """Tables of two rows drawn without lines (a pmf: values over their probabilities): a line of writing and the
+    one right under it whose strokes together fall into a column of titles and at least four of values, short
+    (a number, a fraction: at most 5h wide), each with one cell of both rows (two lines of words don't)."""
+    rest = [i for i in range(len(boxes)) if i not in taken]
+    lines = [[rest[i] for i in line] for line in find_lines([boxes[i] for i in rest])]
+    box = {id(line): (min(boxes[i][0] for i in line), min(boxes[i][1] for i in line),
+                      max(boxes[i][2] for i in line), max(boxes[i][3] for i in line)) for line in lines}
+    out, used = [], set()
+    for a in lines:
+        A = box[id(a)]
+        under = [line for line in lines if line is not a and (A[1] + A[3]) / 2 < box[id(line)][1] <= A[3] + 1.5 * h
+                 and _shares(A, box[id(line)])]
+        if not under or used & set(a):
+            continue
+        b = min(under, key=lambda line: box[id(line)][1])
+        cols = _runs(boxes, a + b, 0, 0.7 * h)
+        while len(cols) > 1 and not (set(cols[0]) & set(a) and set(cols[0]) & set(b)) and (
+                min(boxes[i][0] for i in cols[1]) - max(boxes[i][2] for i in cols[0]) < 1.5 * h):
+            cols[:2] = [cols[0] + cols[1]]  # a title written with a gap ("p (y)")
+        cells = [[[i for i in c if i in set(row)] for row in (a, b)] for c in cols[1:]]
+        if len(cols) >= 5 and not used & set(b) and all(
+                max(boxes[i][2] for i in c) - min(boxes[i][0] for i in c) <= 5 * h
+                and all(part and len(_runs(boxes, part, 0, 0.7 * h)) == 1 for part in parts)
+                for c, parts in zip(cols[1:], cells)):
+            out.append((sorted(a + b), [[[i for i in c if i in set(row)] for c in cols] for row in (a, b)]))
+            used |= set(a + b)
+    return out
+
+
 def find_tables(strokes: list[PdfStroke]) -> list[tuple[list[int], list[list[list[int]]]]]:
     """Tables among strokes in writing order -> for each, its stroke indices and its rows of cells (stroke indices;
     the first row the head). A table is titles over a long flat rule and, under it, columns of cells with empty
     space between them (a truth table); lines drawn across its rows are marks, in no cell. Its rows are read down
-    each column: one column's cells need not line up with the next one's."""
+    each column: one column's cells need not line up with the next one's. Two rows written without lines, their
+    columns lined up, are a table too (_two_row_tables)."""
     if not strokes:
         return []
     boxes = [s.box for s in strokes]
@@ -418,7 +449,7 @@ def find_tables(strokes: list[PdfStroke]) -> list[tuple[list[int], list[list[lis
         if not taken & set(rule) and (t := _table_under(strokes, rule, marks, h, taken)):
             tables.append(t)
             taken.update(t[0])
-    return tables
+    return tables + _two_row_tables(boxes, h, taken)
 
 
 def find_lines(boxes, fixed=(), points=None) -> list[list[int]]:

@@ -102,6 +102,14 @@ def test_a_truth_table_is_found_and_read_down_its_columns():
     assert isinstance(lines[0], Table) and lines[0].rows[1][2] == [cells[2]] and lines[1] == [words]
 
 
+def test_two_rows_whose_columns_line_up_are_a_table():
+    values = [_box_stroke(10, 10, 13, 14)] + [_box_stroke(x, 10, x + 2, 14) for x in (25, 35, 45, 55)]  # y 0 1 2 3
+    probabilities = [_box_stroke(8, 18.5, 16, 22.5)] + [_box_stroke(x - 1, 18.5, x + 3, 22.5) for x in (25, 35, 45, 55)]
+    [(idx, rows)] = find_tables(values + probabilities)
+    assert rows == [[[0], [1], [2], [3], [4]], [[5], [6], [7], [8], [9]]]
+    assert find_tables([_box_stroke(*b) for b in _letters(10, 10, 12) + _letters(10, 20, 12)]) == []  # writing
+
+
 def test_lines_crossing_are_a_drawing_and_writing_is_not():
     letters = [_box_stroke(x, 50, x + 3, 54) for x in (10, 15, 20, 25)]
     lines = [_box_stroke(10, 20, 40, 20.5), _box_stroke(20, 5, 20.5, 35)]  # a level line across an upright one

@@ -31,6 +31,7 @@ RELATIONS = {"=", r"\equiv", r"\leq", r"\geq", "<", ">", r"\neq", r"\approx", r"
 BINARY = {"+", "-", r"\pm", r"\times", r"\cdot", r"\rightarrow", r"\leftarrow", r"\to", r"\in", r"\notin",
           r"\subseteq", r"\subset", r"\wedge", r"\vee", r"\oplus", r"\cup", r"\cap"}
 WORD = re.compile(r"\\[a-zA-Z]+")
+NUMBER_CELL = re.compile(r"-?[\d.,]+|-?\\frac\{[\d.]+\}\{[\d.]+\}")  # a pmf's value or probability, as read
 
 
 @dataclass
@@ -86,6 +87,50 @@ def _read(strokes, predict) -> str:
     return predict([_image(strokes)])[0].strip()
 
 
+def _height(strokes) -> float:
+    """The letter height of some strokes, as ink measures it: their median height."""
+    heights = [s.box[3] - s.box[1] for s in strokes if s.box[3] - s.box[1] > 1.0]
+    return float(np.median(heights)) if heights else 5.0
+
+
+def _row_image(cells: list[list[PdfStroke]], h: float) -> Image.Image:
+    """A table row's cells redrawn side by side as one line, a comma drawn after each but the last: read so, its
+    numbers have the context of a list (a lone 3 reads as a brace)."""
+    outlines, x = [], 0.0
+    base = float(np.median([max(s.box[3] for s in c) for c in cells]))
+    for k, c in enumerate(cells):
+        x0, x1 = min(s.box[0] for s in c), max(s.box[2] for s in c)
+        outlines += [q + [x - x0, 0.0] for s in c for q in s.outlines]
+        x += x1 - x0
+        if k < len(cells) - 1:
+            cx, cy = x + 0.35 * h, base - 0.1 * h
+            outlines.append(np.array([[cx, cy], [cx + 0.14 * h, cy], [cx - 0.05 * h, cy + 0.5 * h],
+                                      [cx - 0.17 * h, cy + 0.5 * h]]))
+            x += 1.6 * h
+    return Image.fromarray(render_ink(outlines, filled=True)).convert("RGB")
+
+
+def _split_row(text: str, n: int) -> list[str] | None:
+    """A row read as one line (_row_image) -> its n cells, split at the commas outside braces; None if it doesn't
+    split into n."""
+    try:
+        parts = split_page(text)
+    except PageError:
+        return None
+    cells, depth = [[]], 0
+    for kind, c in parts:
+        for t in c.replace(",", " , ").split() if kind == "text" else c.split():
+            depth += t.count("{") - t.count("}")
+            if t == "," and depth == 0:
+                cells.append([])
+            else:
+                cells[-1].append((kind, t))
+    if len(cells) != n or not all(cells):
+        return None
+    return [" ".join(t for _, t in c) if all(k == "text" for k, _ in c) else "$ " + " ".join(t for _, t in c) + " $"
+            for c in cells]
+
+
 def markdown_table(rows: list[list[str]]) -> str:
     """Rows of cell readings (the first the head) -> a Markdown table."""
     lines = ["| " + " | ".join(c.replace("|", "\\|") for c in row) + " |" for row in rows]
@@ -107,8 +152,9 @@ def read_lines(lines: list[list[PdfStroke]], predict) -> list[Line]:
     with columns of work side by side read one at a time (ink.column_order: a step written later under an
     earlier column joins it), side notes joined. A table is read a cell at a time into a Markdown table: in a
     truth table (most cells read T or F) each cell under the head is whichever of T and F the model finds
-    likelier, a lone letter being easy to misread. A problem label its first title starts with ("1. m") goes on
-    a line before it."""
+    likelier, a lone letter being easy to misread; in another (a pmf) each row's cells after its title are also
+    read as one line (_row_image), and where that splits into as many cells, those readings are kept. A problem
+    label its first title starts with ("1. m") goes on a line before it."""
     out = []
     for strokes in lines:
         box = _union([s.box for s in strokes])
@@ -118,6 +164,19 @@ def read_lines(lines: list[list[PdfStroke]], predict) -> list[Line]:
             if hasattr(predict, "choose") and sum(rows[r][j].strip("$ ") in ("T", "F") for r, j in body) >= 0.4 * len(body):
                 for (r, j), v in zip(body, predict.choose([_image(strokes.rows[r][j]) for r, j in body], ["T", "F"])):
                     rows[r][j] = v
+            else:
+                h = _height(strokes)
+                for r, row in enumerate(strokes.rows):
+                    values = [j for j, c in enumerate(row) if j and c]
+                    read = predict([_row_image([row[j] for j in values], h)])[0] if len(values) >= 2 else ""
+                    for j, v in zip(values, _split_row(read, len(values)) or []):
+                        rows[r][j] = v
+                values = [re.sub(r"[\s$]", "", c) for row in rows for c in row[1:] if c]
+                if len(rows) == 2 and sum(bool(NUMBER_CELL.fullmatch(v)) for v in values) < 0.6 * len(values):
+                    for row in strokes.rows:  # two rows of something else that lined up: lines after all
+                        row_strokes = [s for c in row for s in c]
+                        out.append(Line(as_display(_read(row_strokes, predict)), _union([s.box for s in row_strokes])))
+                    continue
             m = LABEL.match(rows[0][0])
             if m and rows[0][0][m.end():m.end() + 1] in (" ", ""):
                 out.append(Line(m.group(), box))
@@ -125,8 +184,7 @@ def read_lines(lines: list[list[PdfStroke]], predict) -> list[Line]:
             out.append(Line(markdown_table(rows), box))
         else:
             out.append(Line(as_display(_read(strokes, predict)), box))
-    heights = [s.box[3] - s.box[1] for strokes in lines for s in strokes]
-    h = float(np.median([x for x in heights if x > 1.0] or [5.0]))  # the letter height, as ink measures it
+    h = _height([s for strokes in lines for s in strokes])
     out = [out[k] for k in column_order([l.box for l in out], h, {k for k, l in enumerate(out) if _goes_on(l.text)})]
     return join_side_notes(out)
 
