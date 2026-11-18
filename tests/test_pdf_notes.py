@@ -6,8 +6,8 @@ import pypdfium2.raw as pdfium_c
 from PIL import Image
 
 from im2tex.ink import PdfStroke
-from im2tex.pdf_notes import (Line, _split_row, group_notes, join_side_notes, latex, markdown_table, note_lines,
-                              read_note, to_markdown, typed_lines)
+from im2tex.pdf_notes import (Line, _image, _split_row, _two_problems, group_notes, join_side_notes, latex,
+                              markdown_table, note_lines, read_note, to_markdown, typed_lines)
 
 
 def test_a_note_in_parentheses_joins_the_line_on_its_row():
@@ -94,6 +94,16 @@ def test_a_table_is_written_as_a_markdown_table():
 
 def _stroke(x, y, s):
     return PdfStroke([np.array([[x, y], [x + s, y], [x + s, y + s], [x, y + s]], float)], (x, y, x + s, y + s), False)
+
+
+def test_two_problems_side_by_side_found_as_one_line_are_read_as_two():
+    left, right = [_stroke(10, 100, 5), _stroke(20, 100, 6)], [_stroke(40, 100, 5)]
+    reads = {_image(left).size: "1. $ x $", _image(right).size: "2. $ y $"}
+    predict = lambda images: [reads.get(images[0].size, "")]
+    halves = _two_problems(left + right, "1. $ x $ 2. $ y $", predict)
+    assert [(line.text, line.box) for line in halves] == [("1. $ x $", (10, 100, 26, 106)),
+                                                          ("2. $ y $", (40, 100, 45, 105))]
+    assert _two_problems(left + right, "1. $ x $ and $ y $", predict) is None  # no second number: one line
 
 
 def test_a_line_at_a_page_break_is_read_once_and_whole():

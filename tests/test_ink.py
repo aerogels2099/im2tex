@@ -67,7 +67,9 @@ def test_a_step_written_back_in_an_earlier_column_is_read_with_it():
     boxes = left + right + [back]
     assert column_order(boxes, 6.0, {3, 4, 5}) == [0, 1, 5, 2, 3, 4]
     assert column_order(boxes, 6.0, {3, 4}) == list(range(6))  # a line that doesn't go on a chain stays
-    assert column_order(left + right[:2] + [(10, 40, 40, 46)], 6.0, {4}) == list(range(5))  # below the other column
+    below = left + right[:2] + [(10, 40, 40, 46)]  # a step under the left column, below the right one's end:
+    assert column_order(below, 6.0, {4}) == list(range(5))  # the right one may be added to the row ("+ 1/16")
+    assert column_order(below, 6.0, {4}, {2}) == [0, 1, 4, 2, 3]  # unless it starts another problem
 
 
 def test_an_integral_its_upper_limit_broke_off_joins_its_integrand():

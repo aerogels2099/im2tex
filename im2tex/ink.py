@@ -217,12 +217,15 @@ def _reading_order(lines) -> list[list[int]]:
     return [idx for idx, _ in placed]
 
 
-def column_order(boxes, h, movable) -> list[int]:
+def column_order(boxes, h, movable, problems=()) -> list[int]:
     """Lines' boxes in reading order -> their indices in a new order, where a line in `movable` (one that goes on
     a chain of steps: it starts with = or ≡) moves up to right after the line above it in its column (the nearest
     above that shares its width) when the lines between are all a column beside it (at least COLUMN_W wide,
-    clear of its column's width) that had reached its height: the writing went back to an earlier column of
-    work written side by side, and each column is read on its own."""
+    clear of its column's width, each level with a line of its column) that reaches its height or holds another
+    problem (a line in `problems`, starting with its number): the writing went back to an earlier column of
+    work written side by side, and each column is read on its own. (A line added later beside a step, like
+    "+ 1/16" after "= 2", is neither: the step under them stays after it.)"""
+    level = lambda a, b: min(a[3], b[3]) > max(a[1], b[1])
     order = list(range(len(boxes)))
     for _ in range(len(order) ** 2):
         for k, i in enumerate(order):
@@ -232,9 +235,10 @@ def column_order(boxes, h, movable) -> list[int]:
             if i not in movable or not above or (p := max(above, key=lambda m: boxes[order[m]][3])) == k - 1:
                 continue
             x0, x1 = min(box[0], boxes[order[p]][0]), max(box[2], boxes[order[p]][2])
+            column = [boxes[order[m]] for m in above] + [box]
             between = [boxes[j] for j in order[p + 1:k]]
-            if all(b[2] - b[0] >= COLUMN_W * h and (b[2] <= x0 or b[0] >= x1) for b in between) and any(
-                    min(b[3], box[3]) > max(b[1], box[1]) for b in between):
+            if all(b[2] - b[0] >= COLUMN_W * h and (b[2] <= x0 or b[0] >= x1) and any(level(b, c) for c in column)
+                   for b in between) and (any(level(b, box) for b in between) or set(order[p + 1:k]) & set(problems)):
                 order.insert(p + 1, order.pop(k))
                 break
         else:

@@ -137,6 +137,31 @@ def markdown_table(rows: list[list[str]]) -> str:
     return "\n".join(lines[:1] + ["|" + "---|" * len(rows[0])] + lines[1:])
 
 
+def _two_problems(strokes, text: str, predict) -> list[Line] | None:
+    """A line read with a problem's number partway along, after a formula ("1. $x$ 2. $y$": two problems written
+    side by side, close enough to be found as one line) -> its two halves, split at one of its widest gaps (at
+    least 1h; the widest may be inside a problem, after its number) where the right half then reads starting
+    with a number; None if it isn't one."""
+    try:
+        parts = split_page(text)
+    except PageError:
+        return None
+    if not any(k == "text" and LABEL.fullmatch(c.strip()) and any(m != "text" for m, _ in parts[:j])
+               for j, (k, c) in enumerate(parts)):
+        return None
+    order = sorted(strokes, key=lambda s: s.box[0])
+    gaps, edge = [], order[0].box[2]
+    for k, s in enumerate(order[1:], 1):
+        gaps.append((s.box[0] - edge, k))
+        edge = max(edge, s.box[2])
+    for _, k in [g for g in sorted(gaps, reverse=True) if g[0] >= _height(strokes)][:4]:
+        halves = order[:k], order[k:]
+        texts = [as_display(_read(half, predict)) for half in halves]
+        if LABEL.match(texts[1].lstrip()):
+            return [Line(t, _union([s.box for s in half])) for t, half in zip(texts, halves)]
+    return None
+
+
 def _goes_on(text: str) -> bool:
     """A reading that starts with = or another relation: the next step of a chain."""
     try:
@@ -154,7 +179,8 @@ def read_lines(lines: list[list[PdfStroke]], predict) -> list[Line]:
     truth table (most cells read T or F) each cell under the head is whichever of T and F the model finds
     likelier, a lone letter being easy to misread; in another (a pmf) each row's cells after its title are also
     read as one line (_row_image), and where that splits into as many cells, those readings are kept. A problem
-    label its first title starts with ("1. m") goes on a line before it."""
+    label its first title starts with ("1. m") goes on a line before it. Two problems side by side found as one
+    line are read as two (_two_problems)."""
     out = []
     for strokes in lines:
         box = _union([s.box for s in strokes])
@@ -183,9 +209,11 @@ def read_lines(lines: list[list[PdfStroke]], predict) -> list[Line]:
                 rows[0][0] = rows[0][0][m.end():].strip()
             out.append(Line(markdown_table(rows), box))
         else:
-            out.append(Line(as_display(_read(strokes, predict)), box))
+            text = as_display(_read(strokes, predict))
+            out += _two_problems(strokes, text, predict) or [Line(text, box)]
     h = _height([s for strokes in lines for s in strokes])
-    out = [out[k] for k in column_order([l.box for l in out], h, {k for k, l in enumerate(out) if _goes_on(l.text)})]
+    out = [out[k] for k in column_order([l.box for l in out], h, {k for k, l in enumerate(out) if _goes_on(l.text)},
+                                        {k for k, l in enumerate(out) if LABEL.match(l.text.lstrip())})]
     return join_side_notes(out)
 
 
